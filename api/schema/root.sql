@@ -24,3 +24,11 @@ CREATE TABLE IF NOT EXISTS refresh_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_refresh_session_user_id ON refresh_sessions (user_id);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    api_key_id   UUID PRIMARY KEY,
+    api_key_hash VARCHAR(255) NOT NULL,
+    is_valid     BOOLEAN NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL,
+    expires_at   TIMESTAMPTZ
+);
