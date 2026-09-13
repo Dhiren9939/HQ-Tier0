@@ -1,11 +1,12 @@
-import { useLocation } from "react-router";
+import { useEffect } from "react";
+import { useLocation, useNavigate } from "react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { ThemeToggle } from "~/components/theme/theme-toggle";
 import { Wordmark } from "~/components/hq/wordmark";
-import { GOOGLE_LOGIN_URL } from "~/lib/api";
+import { fetchMe, GOOGLE_LOGIN_URL } from "~/lib/api";
 
 function GoogleIcon() {
   return (
@@ -32,7 +33,16 @@ function GoogleIcon() {
 
 export default function Login() {
   const location = useLocation();
+  const navigate = useNavigate();
   const oauthError = new URLSearchParams(location.search).get("error");
+
+  useEffect(() => {
+    // Already have a valid session (e.g. a bookmark to "/") - skip straight past the form.
+    // Failure just means "not logged in", which is fine: stay on this page.
+    fetchMe()
+      .then(() => navigate("/dashboard", { replace: true }))
+      .catch(() => {});
+  }, [navigate]);
 
   return (
     <div className="flex min-h-svh items-center justify-center bg-background p-4">
