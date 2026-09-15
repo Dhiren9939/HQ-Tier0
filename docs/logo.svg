@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="64" height="64" fill="none" aria-label="HQ logo">
+  <path d="M0 8h3M13 8h3" stroke="#171717" stroke-width="1.5" />
+  <rect x="3.75" y="3.75" width="8.5" height="8.5" stroke="#171717" stroke-width="1.5" />
+  <rect x="6.5" y="6.5" width="3" height="3" fill="#171717" />
+</svg>
