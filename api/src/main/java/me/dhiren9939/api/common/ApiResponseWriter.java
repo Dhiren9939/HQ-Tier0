@@ -9,7 +9,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Writes an {@link ApiResponse} straight to the servlet response for code that runs outside
+ * Writes an {@link ApiResponseDto} straight to the servlet response for code that runs outside
  * Spring MVC's message-conversion pipeline - security filters and entry points/handlers,
  * which reject a request before any @Controller is reached and would otherwise fall back to
  * an empty body or a container error page.
@@ -21,7 +21,7 @@ public final class ApiResponseWriter {
 
     public static void writeError(HttpServletResponse response, ObjectMapper objectMapper, HttpStatus status, String code, String message)
             throws IOException {
-        ApiResponse<?> body = ApiResponse.fail(ApiError.of(status.value(), code, message));
+        ApiResponseDto<?> body = ApiResponseDto.fail(ApiErrorDto.of(status.value(), code, message));
 
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);

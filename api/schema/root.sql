@@ -25,10 +25,26 @@ CREATE TABLE IF NOT EXISTS refresh_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_refresh_session_user_id ON refresh_sessions (user_id);
 
+-- No enabled/disabled flag: a key is considered enabled exactly while it hasn't expired
+-- (expires_at is null or in the future) - that's derived, not stored.
 CREATE TABLE IF NOT EXISTS api_keys (
     api_key_id   UUID PRIMARY KEY,
+    user_id      UUID NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
+    name         VARCHAR(255) NOT NULL,
     api_key_hash VARCHAR(255) NOT NULL,
-    is_valid     BOOLEAN NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL,
     expires_at   TIMESTAMPTZ
 );
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys (user_id);
+
+-- If api_keys already existed without these columns/with is_valid (it was created before this
+-- change), apply manually against the existing DB instead of relying on CREATE TABLE IF NOT
+-- EXISTS above:
+-- ALTER TABLE api_keys ADD COLUMN user_id UUID REFERENCES users (user_id) ON DELETE CASCADE;
+-- ALTER TABLE api_keys ADD COLUMN name VARCHAR(255);
+-- -- backfill user_id/name for any existing rows here, then:
+-- ALTER TABLE api_keys ALTER COLUMN user_id SET NOT NULL;
+-- ALTER TABLE api_keys ALTER COLUMN name SET NOT NULL;
+-- CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys (user_id);
+-- ALTER TABLE api_keys DROP COLUMN IF EXISTS is_valid;

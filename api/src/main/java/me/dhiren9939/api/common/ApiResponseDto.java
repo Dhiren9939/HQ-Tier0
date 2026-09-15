@@ -6,7 +6,7 @@ import org.springframework.http.ResponseEntity;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @Schema(description = "Standard API response wrapper used for all endpoints.")
-public record ApiResponse<T>(
+public record ApiResponseDto<T>(
 
         @Schema(description = "Indicates if the request was successful.", example = "true")
         boolean success,
@@ -18,27 +18,27 @@ public record ApiResponse<T>(
         T data,
 
         @Schema(description = "Contains error details if 'success' is false.")
-        ApiError<?> error
+        ApiErrorDto<?> error
 ) {
-    public static <T> ApiResponse<T> of(T data) {
-        return new ApiResponse<>(true, null, data, null);
+    public static <T> ApiResponseDto<T> of(T data) {
+        return new ApiResponseDto<>(true, null, data, null);
     }
 
-    public static <T> ApiResponse<T> of(String message, T data) {
-        return new ApiResponse<>(true, message, data, null);
+    public static <T> ApiResponseDto<T> of(String message, T data) {
+        return new ApiResponseDto<>(true, message, data, null);
     }
 
-    public static <T> ApiResponse<T> fail(ApiError<?> error) {
-        return new ApiResponse<>(false, null, null, error);
+    public static <T> ApiResponseDto<T> fail(ApiErrorDto<?> error) {
+        return new ApiResponseDto<>(false, null, null, error);
     }
 
-    public ResponseEntity<ApiResponse<T>> toResponseEntity() {
+    public ResponseEntity<ApiResponseDto<T>> toResponseEntity() {
         if (error != null)
             return ResponseEntity.status(error.status()).body(this);
         return ResponseEntity.status(200).body(this);
     }
 
-    public ResponseEntity<ApiResponse<T>> toResponseEntity(int statusCode) {
+    public ResponseEntity<ApiResponseDto<T>> toResponseEntity(int statusCode) {
         return ResponseEntity.status(statusCode).body(this);
     }
 }

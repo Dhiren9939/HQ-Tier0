@@ -1,12 +1,12 @@
 import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { ThemeToggle } from "~/components/theme/theme-toggle";
 import { Wordmark } from "~/components/hq/wordmark";
-import { fetchMe, GOOGLE_LOGIN_URL } from "~/lib/api";
+import { fetchProfile, GOOGLE_LOGIN_URL } from "~/lib/api";
 
 function GoogleIcon() {
   return (
@@ -39,7 +39,7 @@ export default function Login() {
   useEffect(() => {
     // Already have a valid session (e.g. a bookmark to "/") - skip straight past the form.
     // Failure just means "not logged in", which is fine: stay on this page.
-    fetchMe()
+    fetchProfile()
       .then(() => navigate("/dashboard", { replace: true }))
       .catch(() => {});
   }, [navigate]);
@@ -50,7 +50,9 @@ export default function Login() {
         <ThemeToggle />
       </div>
       <div className="w-full max-w-sm">
-        <Wordmark className="mb-6 justify-center" />
+        <Link to="/" aria-label="HQ home" className="mb-6 flex justify-center">
+          <Wordmark />
+        </Link>
         <Card>
           <CardHeader>
             <CardTitle className="font-display text-xl font-extrabold tracking-tight">

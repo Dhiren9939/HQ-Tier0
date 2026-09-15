@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { AppHeader } from "~/components/hq/app-header";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
-import { ThemeToggle } from "~/components/theme/theme-toggle";
-import { Wordmark } from "~/components/hq/wordmark";
-import { fetchMe, logout, type User } from "~/lib/api";
+import { fetchProfile, logout, type User } from "~/lib/api";
 
 type State = { status: "loading" } | { status: "ready"; user: User } | { status: "redirecting" };
 
@@ -16,7 +15,7 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false;
 
-    fetchMe()
+    fetchProfile()
       .then((user) => {
         if (!cancelled) setState({ status: "ready", user });
       })
@@ -25,7 +24,7 @@ export default function Dashboard() {
         // Anything that fails here - UnauthenticatedError or otherwise - sends the visitor
         // back to sign in; there's nothing useful to show on this page without a session.
         setState({ status: "redirecting" });
-        navigate("/", { replace: true });
+        navigate("/login", { replace: true });
       });
 
     return () => {
@@ -35,22 +34,20 @@ export default function Dashboard() {
 
   async function handleLogout() {
     await logout();
-    navigate("/", { replace: true });
+    navigate("/login", { replace: true });
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background p-4">
-      <div className="absolute top-4 right-4">
-        <ThemeToggle />
-      </div>
-      <div className="w-full max-w-sm">
-        <Wordmark className="mb-6 justify-center" />
-        <Card>
+    <div className="flex min-h-svh flex-col bg-background">
+      <AppHeader />
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
+        <h1 className="font-display text-2xl font-extrabold tracking-tight">Dashboard</h1>
+        <p className="mt-1 text-sm text-muted-foreground">You're signed in.</p>
+
+        <Card className="mt-6 max-w-sm">
           <CardHeader>
-            <CardTitle className="font-display text-xl font-extrabold tracking-tight">
-              Dashboard
-            </CardTitle>
-            <CardDescription>You're signed in.</CardDescription>
+            <CardTitle className="font-display text-base font-bold tracking-tight">Account</CardTitle>
+            <CardDescription>Your profile and session.</CardDescription>
           </CardHeader>
           <CardContent>
             {state.status !== "ready" ? (
@@ -70,7 +67,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-      </div>
+      </main>
     </div>
   );
 }

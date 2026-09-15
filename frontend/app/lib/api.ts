@@ -65,12 +65,22 @@ function refreshSession(): Promise<boolean> {
   return refreshInFlight;
 }
 
+/** Thrown by `mutate` on a business failure (validation, not-found, ...) - never on an auth failure, which throws UnauthenticatedError instead. Carries the server's ApiError so forms can show field-level messages. */
+export class ApiRequestError extends Error {
+  constructor(public readonly apiError: ApiError | null) {
+    super(apiError?.message ?? "Request failed");
+    this.name = "ApiRequestError";
+  }
+}
+
 /**
- * Fetches `path` as an authenticated call. On a 401 (expired access token) it transparently
- * refreshes once and retries; if the refresh itself fails, throws UnauthenticatedError instead
- * of surfacing a confusing second 401 - callers only need to handle one failure case.
+ * Fetches `path` as an authenticated call and returns the full envelope. On a 401 (expired
+ * access token) it transparently refreshes once and retries; if the refresh itself fails, throws
+ * UnauthenticatedError instead of surfacing a confusing second 401 - callers only need to handle
+ * one failure case for "the session is gone". Never throws for a business-level failure (4xx with
+ * a valid session) - callers inspect `success`/`error` themselves.
  */
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiFetchEnvelope<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
   let response = await fetch(path, {
     credentials: "include",
     headers: { Accept: "application/json", ...init?.headers },
@@ -89,17 +99,94 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     });
   }
 
-  const body = (await response.json()) as ApiResponse<T>;
+  return (await response.json()) as ApiResponse<T>;
+}
+
+/** Like `apiFetchEnvelope`, but for callers that only want the happy path - throws UnauthenticatedError on any failure, business or auth. Fine for reads where there's nothing useful to show without a session anyway; mutations that need to surface validation errors should use `mutate` instead. */
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const body = await apiFetchEnvelope<T>(path, init);
   if (!body.success || body.data === null) {
     throw new UnauthenticatedError();
   }
   return body.data;
 }
 
-export function fetchMe(): Promise<User> {
-  return apiFetch<User>("/api/me");
+/** For mutations: returns the response data on success, throws ApiRequestError (with the server's ApiError attached) on a business failure. */
+async function mutate<T>(path: string, init?: RequestInit): Promise<T> {
+  const body = await apiFetchEnvelope<T>(path, init);
+  if (!body.success || body.data === null) {
+    throw new ApiRequestError(body.error);
+  }
+  return body.data;
+}
+
+/** Same as `mutate`, but for endpoints with no response payload (data is legitimately null on success). */
+async function mutateVoid(path: string, init?: RequestInit): Promise<void> {
+  const body = await apiFetchEnvelope<void>(path, init);
+  if (!body.success) {
+    throw new ApiRequestError(body.error);
+  }
+}
+
+export function fetchProfile(): Promise<User> {
+  return apiFetch<User>("/api/profile");
 }
 
 export async function logout(): Promise<void> {
   await rawFetch<void>("/api/public/auth/logout", { method: "POST" });
+}
+
+// Mirrors me.dhiren9939.api.apikey.service.ApiKeyExpiry.Duration.
+export type ApiKeyExpiry = "ONE_DAY" | "ONE_MONTH" | "NEVER";
+
+// Mirrors me.dhiren9939.api.apikey.dto.ApiKeyDto - list items and patch results, never key material.
+// There's no "enabled" concept server-side; a key is either present or deleted.
+export interface ApiKey {
+  apiKeyId: string;
+  name: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+// Mirrors me.dhiren9939.api.apikey.dto.ApiKeyCreatedDto - the only response that ever
+// carries the raw key, and only this once.
+export interface ApiKeyCreated extends ApiKey {
+  rawKey: string;
+}
+
+// Mirrors me.dhiren9939.api.apikey.dto.ApiKeyPageDto - page-number/size paging, not cursor-based.
+export interface ApiKeyPage {
+  apiKeyList: ApiKey[];
+  pageNo: number;
+  size: number;
+  totalElements: number;
+  numberOfPages: number;
+}
+
+export function listApiKeys(page = 0, size = 20): Promise<ApiKeyPage> {
+  return apiFetch<ApiKeyPage>(`/api/users/apikeys?page=${page}&size=${size}`);
+}
+
+export function createApiKey(name: string, expiry: ApiKeyExpiry): Promise<ApiKeyCreated> {
+  return mutate<ApiKeyCreated>("/api/users/apikeys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, expiry }),
+  });
+}
+
+/** name/expiry are optional - omitted means "leave unchanged" (mirrors ApiKeyPatchRequest). */
+export function patchApiKey(
+  apiKeyId: string,
+  patch: { name?: string; expiry?: ApiKeyExpiry }
+): Promise<ApiKey> {
+  return mutate<ApiKey>(`/api/users/apikeys/${apiKeyId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteApiKey(apiKeyId: string): Promise<void> {
+  return mutateVoid(`/api/users/apikeys/${apiKeyId}`, { method: "DELETE" });
 }
