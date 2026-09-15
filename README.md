@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="HQ logo" width="64" />
+  <img src="docs/logo.svg?v=2" alt="HQ logo" width="64" />
 </p>
 
 <h1 align="center">HQ</h1>
@@ -7,6 +7,16 @@
 <p align="center">
   A webhook delivery platform: ingest events, queue them, and reliably deliver them to
   subscriber endpoints.
+</p>
+
+<p align="center">
+  <img alt="Tier" src="https://img.shields.io/badge/tier-0%20prototype-6C5CE0" />
+  <img alt="Java" src="https://img.shields.io/badge/java-25-ED8B00?logo=openjdk&logoColor=white" />
+  <img alt="Spring Boot" src="https://img.shields.io/badge/spring%20boot-4.1-6DB33F?logo=springboot&logoColor=white" />
+  <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=black" />
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/postgres-17-4169E1?logo=postgresql&logoColor=white" />
+  <img alt="Redis" src="https://img.shields.io/badge/redis-cache-DC382D?logo=redis&logoColor=white" />
+  <img alt="RabbitMQ" src="https://img.shields.io/badge/rabbitmq-queue-FF6600?logo=rabbitmq&logoColor=white" />
 </p>
 
 ## Tiered approach
