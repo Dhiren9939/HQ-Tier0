@@ -6,6 +6,7 @@ import { cn } from "~/lib/utils";
 
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/dashboard/tenants", label: "Tenants" },
   { href: "/dashboard/api-keys", label: "API keys" },
 ];
 

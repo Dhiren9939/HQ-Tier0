@@ -1,6 +1,7 @@
 package me.dhiren9939.api.common;
 
 import jakarta.validation.Constraint;
+import jakarta.validation.Payload;
 
 import java.lang.annotation.*;
 
@@ -11,4 +12,6 @@ import java.lang.annotation.*;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface OptionalNotBlank {
     String message() default "must not be blank";
+    Class<?>[] groups() default {};
+    Class<? extends Payload>[] payload() default {};
 }

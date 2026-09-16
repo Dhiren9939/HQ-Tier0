@@ -39,9 +39,17 @@ export default function Login() {
   useEffect(() => {
     // Already have a valid session (e.g. a bookmark to "/") - skip straight past the form.
     // Failure just means "not logged in", which is fine: stay on this page.
-    fetchProfile()
-      .then(() => navigate("/dashboard", { replace: true }))
+    let cancelled = false;
+    const controller = new AbortController();
+    fetchProfile(controller.signal)
+      .then(() => {
+        if (!cancelled) navigate("/dashboard", { replace: true });
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [navigate]);
 
   return (

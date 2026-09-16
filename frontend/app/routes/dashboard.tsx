@@ -14,8 +14,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
-    fetchProfile()
+    fetchProfile(controller.signal)
       .then((user) => {
         if (!cancelled) setState({ status: "ready", user });
       })
@@ -29,6 +30,7 @@ export default function Dashboard() {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [navigate]);
 

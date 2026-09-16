@@ -26,9 +26,9 @@ import java.time.Instant;
 import java.util.Optional;
 
 @RestController
-@RequestMapping("/api/public/auth")
+@RequestMapping("/api/v1/public/auth")
 @RequiredArgsConstructor
-@Tag(name = "Auth", description = "Cookie-based OAuth2/JWT session endpoints. Sign-in itself happens via the OAuth2 redirect flow at /api/public/oauth2/authorization/{registrationId}, which is not a JSON API and so isn't documented here.")
+@Tag(name = "Auth", description = "Cookie-based OAuth2/JWT session endpoints. Sign-in itself happens via the OAuth2 redirect flow at /api/v1/public/oauth2/authorization/{registrationId}, which is not a JSON API and so isn't documented here.")
 public class AuthController {
 
     private final RefreshTokenService refreshTokenService;

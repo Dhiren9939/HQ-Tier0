@@ -14,9 +14,9 @@ public final class AuthCookies {
 
     // The refresh cookie is scoped to this path so it's never sent on ordinary API calls -
     // only on the one endpoint that's allowed to see it.
-    public static final String REFRESH_TOKEN_PATH = "/api/public/auth/refresh";
+    public static final String REFRESH_TOKEN_PATH = "/api/v1/public/auth/refresh";
 
-    public static final String ACCESS_TOKEN_SAME_SITE = "Lax";
+    public static final String ACCESS_TOKEN_SAME_SITE = "Strict";
     public static final String REFRESH_TOKEN_SAME_SITE = "Strict";
 
     private AuthCookies() {

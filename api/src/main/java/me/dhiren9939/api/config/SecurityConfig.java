@@ -28,17 +28,16 @@ public class SecurityConfig {
                                                      JsonAuthenticationEntryPoint authenticationEntryPoint, JsonAccessDeniedHandler accessDeniedHandler) {
         http
                 .csrf(AbstractHttpConfigurer::disable)
-
                 .sessionManagement(sess -> sess.
                         sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/public/**").permitAll()
+                        .requestMatchers("/api/v1/public/**").permitAll()
                         .anyRequest().authenticated()
                 ).oauth2Login(oauth -> oauth
                         .authorizationEndpoint(authz -> authz
-                                .baseUri("/api/public/oauth2/authorization"))
+                                .baseUri("/api/v1/public/oauth2/authorization"))
                         .redirectionEndpoint(redir -> redir
-                                .baseUri("/api/public/login/oauth2/code/*"))
+                                .baseUri("/api/v1/public/login/oauth2/code/*"))
                         .successHandler(successHandler)
                         .failureHandler(failureHandler)
                 )

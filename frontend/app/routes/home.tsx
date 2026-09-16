@@ -50,13 +50,15 @@ function useAuthState() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchProfile()
+    const controller = new AbortController();
+    fetchProfile(controller.signal)
       .then(() => {
         if (!cancelled) setAuthed(true);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, []);
 

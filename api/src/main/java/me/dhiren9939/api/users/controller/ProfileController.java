@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Not under /api/public/** - reaching this endpoint requires JwtAuthenticationFilter to have
+ * Not under /api/v1/public/** - reaching this endpoint requires JwtAuthenticationFilter to have
  * populated the SecurityContext from a valid access-token cookie; otherwise JsonAuthenticationEntryPoint
  * answers with a 401 before this method ever runs. This is what the SPA calls on load to find out
  * whether it's logged in and who as.
@@ -25,7 +25,7 @@ public class ProfileController {
 
     private final UserService userService;
 
-    @GetMapping("/api/profile")
+    @GetMapping("/api/v1/profile")
     @Operation(summary = "Get current user", description = "Returns the profile of the signed-in user, identified by the access_token cookie.")
     @ApiResponse(responseCode = "200", description = "Profile returned.")
     @ApiResponse(responseCode = "401", description = "Not signed in, or the access token is missing/invalid.")

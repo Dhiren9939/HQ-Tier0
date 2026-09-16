@@ -48,3 +48,28 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys (user_id);
 -- ALTER TABLE api_keys ALTER COLUMN name SET NOT NULL;
 -- CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys (user_id);
 -- ALTER TABLE api_keys DROP COLUMN IF EXISTS is_valid;
+
+CREATE TABLE IF NOT EXISTS tenants (
+    tenant_id  UUID PRIMARY KEY,
+    user_id    UUID NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
+    name       VARCHAR(255) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenants_user_id ON tenants (user_id);
+
+CREATE TABLE IF NOT EXISTS channels (
+    channel_id     UUID PRIMARY KEY,
+    tenant_id      UUID NOT NULL REFERENCES tenants (tenant_id) ON DELETE CASCADE,
+    call_back_url  VARCHAR(2048) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_channels_tenant_id ON channels (tenant_id);
+
+CREATE TABLE IF NOT EXISTS channel_event_types (
+    channel_id  UUID NOT NULL REFERENCES channels (channel_id) ON DELETE CASCADE,
+    event_type  VARCHAR(255) NOT NULL,
+    tenant_id   UUID NOT NULL,
+    PRIMARY KEY (channel_id, event_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_channel_event_types_tenant_id ON channel_event_types (tenant_id);

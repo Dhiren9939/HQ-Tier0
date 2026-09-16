@@ -82,11 +82,11 @@ cd api
 ./mvnw spring-boot:run
 ```
 
-The API listens on `http://localhost:8081`. API docs are served under `/api/public` (which is
-permitAll in `SecurityConfig`):
+The API listens on `http://localhost:8081` and every endpoint is served under `/api/v1`. API docs
+are served under `/api/v1/public` (which is permitAll in `SecurityConfig`):
 
-- Swagger UI: `http://localhost:8081/api/public/swagger-ui.html`
-- OpenAPI JSON: `http://localhost:8081/api/public/v3/api-docs`
+- Swagger UI: `http://localhost:8081/api/v1/public/swagger-ui.html`
+- OpenAPI JSON: `http://localhost:8081/api/v1/public/v3/api-docs`
 
 ### 5. Run the frontend
 

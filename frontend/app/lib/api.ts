@@ -1,9 +1,9 @@
 // Google is the only sign-in method for now. The authorization endpoint is
-// customized server-side (SecurityConfig) to live under /api/public/**, not
+// customized server-side (SecurityConfig) to live under /api/v1/public/**, not
 // Spring Security's default /oauth2/authorization/{id} - kept as a constant
 // (not a fetch call) because the browser needs a full-page redirect here,
 // not an XHR.
-export const GOOGLE_LOGIN_URL = "/api/public/oauth2/authorization/google";
+export const GOOGLE_LOGIN_URL = "/api/v1/public/oauth2/authorization/google";
 
 // Mirrors api's me.dhiren9939.api.common.ApiError - every failed response
 // from the backend has exactly this shape.
@@ -56,7 +56,7 @@ let refreshInFlight: Promise<boolean> | null = null;
 
 function refreshSession(): Promise<boolean> {
   if (!refreshInFlight) {
-    refreshInFlight = rawFetch<void>("/api/public/auth/refresh", { method: "POST" })
+    refreshInFlight = rawFetch<void>("/api/v1/public/auth/refresh", { method: "POST" })
       .then((res) => res.success)
       .finally(() => {
         refreshInFlight = null;
@@ -128,12 +128,12 @@ async function mutateVoid(path: string, init?: RequestInit): Promise<void> {
   }
 }
 
-export function fetchProfile(): Promise<User> {
-  return apiFetch<User>("/api/profile");
+export function fetchProfile(signal?: AbortSignal): Promise<User> {
+  return apiFetch<User>("/api/v1/profile", { signal });
 }
 
 export async function logout(): Promise<void> {
-  await rawFetch<void>("/api/public/auth/logout", { method: "POST" });
+  await rawFetch<void>("/api/v1/public/auth/logout", { method: "POST" });
 }
 
 // Mirrors me.dhiren9939.api.apikey.service.ApiKeyExpiry.Duration.
@@ -163,12 +163,12 @@ export interface ApiKeyPage {
   numberOfPages: number;
 }
 
-export function listApiKeys(page = 0, size = 20): Promise<ApiKeyPage> {
-  return apiFetch<ApiKeyPage>(`/api/users/apikeys?page=${page}&size=${size}`);
+export function listApiKeys(page = 0, size = 20, signal?: AbortSignal): Promise<ApiKeyPage> {
+  return apiFetch<ApiKeyPage>(`/api/v1/apikeys?page=${page}&size=${size}`, { signal });
 }
 
 export function createApiKey(name: string, expiry: ApiKeyExpiry): Promise<ApiKeyCreated> {
-  return mutate<ApiKeyCreated>("/api/users/apikeys", {
+  return mutate<ApiKeyCreated>("/api/v1/apikeys", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, expiry }),
@@ -180,7 +180,7 @@ export function patchApiKey(
   apiKeyId: string,
   patch: { name?: string; expiry?: ApiKeyExpiry }
 ): Promise<ApiKey> {
-  return mutate<ApiKey>(`/api/users/apikeys/${apiKeyId}`, {
+  return mutate<ApiKey>(`/api/v1/apikeys/${apiKeyId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -188,5 +188,117 @@ export function patchApiKey(
 }
 
 export function deleteApiKey(apiKeyId: string): Promise<void> {
-  return mutateVoid(`/api/users/apikeys/${apiKeyId}`, { method: "DELETE" });
+  return mutateVoid(`/api/v1/apikeys/${apiKeyId}`, { method: "DELETE" });
+}
+
+// Mirrors me.dhiren9939.api.tenants.dto.TenantDto.
+export interface Tenant {
+  tenantId: string;
+  name: string;
+}
+
+// Mirrors me.dhiren9939.api.tenants.dto.TenantPageDto - page-number/size paging, not cursor-based.
+export interface TenantPage {
+  tenantList: Tenant[];
+  pageNo: number;
+  size: number;
+  totalElements: number;
+  numberOfPages: number;
+}
+
+export function listTenants(page = 0, size = 20, signal?: AbortSignal): Promise<TenantPage> {
+  return apiFetch<TenantPage>(`/api/v1/tenants?page=${page}&size=${size}`, { signal });
+}
+
+export function getTenant(tenantId: string, signal?: AbortSignal): Promise<Tenant> {
+  return apiFetch<Tenant>(`/api/v1/tenants/${tenantId}`, { signal });
+}
+
+export function createTenant(name: string): Promise<Tenant> {
+  return mutate<Tenant>("/api/v1/tenants", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function patchTenant(tenantId: string, patch: { name?: string }): Promise<Tenant> {
+  return mutate<Tenant>(`/api/v1/tenants/${tenantId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteTenant(tenantId: string): Promise<void> {
+  return mutateVoid(`/api/v1/tenants/${tenantId}`, { method: "DELETE" });
+}
+
+// Mirrors me.dhiren9939.api.channels.dto.ChannelDto.
+export interface Channel {
+  channelId: string;
+  tenantId: string;
+  callBackUrl: string;
+}
+
+// Mirrors me.dhiren9939.api.channels.dto.ChannelPageDto - page-number/size paging, not cursor-based.
+export interface ChannelPage {
+  channelList: Channel[];
+  pageNo: number;
+  size: number;
+  totalElements: number;
+  numberOfPages: number;
+}
+
+// Mirrors me.dhiren9939.api.channels.dto.ChannelEventTypeDto.
+export interface ChannelEventType {
+  channelId: string;
+  eventType: string;
+}
+
+export function listChannels(tenantId: string, page = 0, size = 20, signal?: AbortSignal): Promise<ChannelPage> {
+  return apiFetch<ChannelPage>(`/api/v1/tenants/${tenantId}/channels?page=${page}&size=${size}`, { signal });
+}
+
+export function createChannel(tenantId: string, callBackUrl: string): Promise<Channel> {
+  return mutate<Channel>(`/api/v1/tenants/${tenantId}/channels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ callBackUrl }),
+  });
+}
+
+export function patchChannel(tenantId: string, channelId: string, patch: { callBackUrl?: string }): Promise<Channel> {
+  return mutate<Channel>(`/api/v1/tenants/${tenantId}/channels/${channelId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteChannel(tenantId: string, channelId: string): Promise<void> {
+  return mutateVoid(`/api/v1/tenants/${tenantId}/channels/${channelId}`, { method: "DELETE" });
+}
+
+export function listChannelEventTypes(
+  tenantId: string,
+  channelId: string,
+  signal?: AbortSignal
+): Promise<ChannelEventType[]> {
+  return apiFetch<ChannelEventType[]>(`/api/v1/tenants/${tenantId}/channels/${channelId}/event-types`, { signal });
+}
+
+export function addChannelEventType(tenantId: string, channelId: string, eventType: string): Promise<ChannelEventType> {
+  return mutate<ChannelEventType>(`/api/v1/tenants/${tenantId}/channels/${channelId}/event-types`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventType }),
+  });
+}
+
+export function removeChannelEventType(tenantId: string, channelId: string, eventType: string): Promise<void> {
+  return mutateVoid(
+    `/api/v1/tenants/${tenantId}/channels/${channelId}/event-types/${encodeURIComponent(eventType)}`,
+    { method: "DELETE" }
+  );
 }

@@ -70,17 +70,18 @@ export default function ApiKeysPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     // Tracks whether the profile fetch itself succeeded - not React state, since the closure
     // below would otherwise see the state value from the render that started this effect, not
     // whatever setAuthState("ready") set it to a moment ago.
     let profileConfirmed = false;
 
-    fetchProfile()
+    fetchProfile(controller.signal)
       .then(() => {
         if (cancelled) return;
         profileConfirmed = true;
         setAuthState("ready");
-        return listApiKeys(0);
+        return listApiKeys(0, 20, controller.signal);
       })
       .then((fetched) => {
         if (!cancelled && fetched) setPageData(fetched);
@@ -98,6 +99,7 @@ export default function ApiKeysPage() {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [navigate]);
 
