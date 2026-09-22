@@ -15,14 +15,14 @@ import org.hibernate.annotations.UuidGenerator;
 import java.util.UUID;
 
 @Entity
-@Table(name = "users", uniqueConstraints = @UniqueConstraint(columnNames = "googleSub"))
+@Table(name = "users")
 @Getter
 @Setter
 @NoArgsConstructor
 public class User {
-@Id
+    @Id
     @GeneratedValue
-    @UuidGenerator(style= UuidGenerator.Style.VERSION_7)
+    @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
     private UUID userId;
 
     @Column(nullable = false)
