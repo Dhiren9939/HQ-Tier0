@@ -1,4 +1,19 @@
 package me.dhiren9939.api.apikey.internal;
 
-public class ApiKeyFacadeImpl {
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import me.dhiren9939.api.apikey.ApiKeyFacade;
+import me.dhiren9939.api.apikey.ApiKeyVerifyDto;
+import org.springframework.stereotype.Component;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+class ApiKeyFacadeImpl implements ApiKeyFacade {
+
+    private final ApiKeyService apiKeyService;
+
+    public ApiKeyVerifyDto verifyApiKey(String accessId, String accessSecret) {
+        return apiKeyService.verifyApiKey(accessId, accessSecret);
+    }
 }

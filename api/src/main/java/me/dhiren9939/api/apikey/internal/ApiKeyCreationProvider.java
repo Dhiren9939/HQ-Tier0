@@ -1,4 +1,5 @@
-package me.dhiren9939.api.apikey.internal.verification;
+package me.dhiren9939.api.apikey.internal;
 
 public interface ApiKeyCreationProvider {
+    ApiKeyTriplet createApiKeyTriplet();
 }

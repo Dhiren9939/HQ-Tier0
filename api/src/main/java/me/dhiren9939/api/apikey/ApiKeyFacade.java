@@ -1,4 +1,5 @@
-package me.dhiren9939.api.apikey.internal;
+package me.dhiren9939.api.apikey;
 
-public class ApiKeyFacade {
+public interface ApiKeyFacade {
+    ApiKeyVerifyDto verifyApiKey(String accessId, String accessSecret);
 }

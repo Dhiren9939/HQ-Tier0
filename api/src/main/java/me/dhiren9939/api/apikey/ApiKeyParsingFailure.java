@@ -1,7 +1,7 @@
 package me.dhiren9939.api.apikey;
 
-public class ApiKeyParsingFailsure extends RuntimeException {
-    public ApiKeyParsingFailsure(String message) {
+public class ApiKeyParsingFailure extends RuntimeException {
+    public ApiKeyParsingFailure(String message) {
         super(message);
     }
 }
