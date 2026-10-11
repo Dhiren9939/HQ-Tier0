@@ -7,7 +7,9 @@ import me.dhiren9939.api.apikey.ApiKeyVerifyDto;
 import me.dhiren9939.api.apikey.internal.dto.CreateResponseDto;
 import me.dhiren9939.api.apikey.internal.dto.GetResponseDto;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -16,21 +18,25 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 class ApiKeyService {
+    private final Clock clock;
     private final ApiKeyExpiry apiKeyExpiry;
+    private final ApiKeyParserService parserService;
+    private final ApiKeyEventEmitterService emitterService;
+
+    private final ApiKeyCreationService creationService;
+    private final ApiKeyVerificationService verificationService;
+
     private final ApiKeyRepository apiKeyRepository;
-    private final ApiKeyParserService apiKeyParserService;
-    private final ApiKeyCreationService apiKeyCreationService;
-    private final ApiKeyVerificationService apiKeyVerificationService;
 
-    CreateResponseDto createApiKey(UUID userId, String apiKeyName, String duration, String ingestionPermVal, String tenantPermVal, String channelPermVal) {
-        ApiKeyTriplet apiKeyTriplet = apiKeyCreationService.createApiKeyTriplet();
+    @Transactional
+    CreateResponseDto createApiKey(UUID userId, String apiKeyName, ApiKeyExpiry.Duration duration,
+                                   ApiKeyPermissions.Ingestion ingestionPerm,
+                                   ApiKeyPermissions.Tenant tenantPerm,
+                                   ApiKeyPermissions.Channel channelPerm) {
+        ApiKeyTriplet apiKeyTriplet = creationService.createApiKeyTriplet();
 
-        Instant createdAt = Instant.now();
-        Instant expiresAt = apiKeyExpiry.getExpiry(createdAt, ApiKeyExpiry.Duration.valueOf(duration));
-
-        ApiKeyPermissions.Ingestion ingestionPerm = ApiKeyPermissions.Ingestion.valueOf(ingestionPermVal);
-        ApiKeyPermissions.Tenant tenantPerm = ApiKeyPermissions.Tenant.valueOf(tenantPermVal);
-        ApiKeyPermissions.Channel channelPerm = ApiKeyPermissions.Channel.valueOf(channelPermVal);
+        Instant createdAt = Instant.now(clock);
+        Instant expiresAt = apiKeyExpiry.getExpiry(createdAt, duration);
 
         ApiKeyEntity entity = ApiKeyEntity.builder()
                 .apiKeyName(apiKeyName)
@@ -46,7 +52,7 @@ class ApiKeyService {
 
         apiKeyRepository.save(entity);
 
-        return CreateResponseDto.builder()
+        CreateResponseDto dto = CreateResponseDto.builder()
                 .apiKeyName(apiKeyName)
                 .apiKeyId(entity.getApiKeyId())
                 .accessId(apiKeyTriplet.accessId())
@@ -57,8 +63,12 @@ class ApiKeyService {
                 .createdAt(createdAt)
                 .expiresAt(expiresAt)
                 .build();
+
+        emitterService.emitCreated(entity);
+        return dto;
     }
 
+    @Transactional(readOnly = true)
     GetResponseDto getApiKey(UUID userId, UUID apiKeyId) {
         ApiKeyEntity entity = findOwned(userId, apiKeyId);
 
@@ -74,34 +84,42 @@ class ApiKeyService {
                 .build();
     }
 
-    GetResponseDto updateApiKey(UUID userId, UUID apiKeyId, String apiKeyName, String duration, String ingestionPermVal, String tenantPermVal, String channelPermVal) {
+    @Transactional
+    GetResponseDto updateApiKey(UUID userId, UUID apiKeyId, String apiKeyName, ApiKeyExpiry.Duration duration,
+                                ApiKeyPermissions.Ingestion ingestionPerm,
+                                ApiKeyPermissions.Tenant tenantPerm,
+                                ApiKeyPermissions.Channel channelPerm) {
         ApiKeyEntity entity = findOwned(userId, apiKeyId);
+        boolean changed = false;
 
-        if (apiKeyName != null) {
+        if (apiKeyName != null && !apiKeyName.equals(entity.getApiKeyName())) {
             entity.setApiKeyName(apiKeyName);
+            changed = true;
         }
 
         if (duration != null) {
-            Instant now = Instant.now();
-            Instant expiresAt = apiKeyExpiry.getExpiry(now, ApiKeyExpiry.Duration.valueOf(duration));
+            Instant now = Instant.now(clock);
+            Instant expiresAt = apiKeyExpiry.getExpiry(now, duration);
             entity.setExpiresAt(expiresAt);
+            changed = true;
         }
 
-        if (ingestionPermVal != null) {
-            entity.setIngestionPermission(ApiKeyPermissions.Ingestion.valueOf(ingestionPermVal));
+        if (ingestionPerm != null && ingestionPerm != entity.getIngestionPermission()) {
+            entity.setIngestionPermission(ingestionPerm);
+            changed = true;
         }
 
-        if (tenantPermVal != null) {
-            entity.setTenantPermission(ApiKeyPermissions.Tenant.valueOf(tenantPermVal));
+        if (tenantPerm != null && tenantPerm != entity.getTenantPermission()) {
+            entity.setTenantPermission(tenantPerm);
+            changed = true;
         }
 
-        if (channelPermVal != null) {
-            entity.setChannelPermission(ApiKeyPermissions.Channel.valueOf(channelPermVal));
+        if (channelPerm != null && channelPerm != entity.getChannelPermission()) {
+            entity.setChannelPermission(channelPerm);
+            changed = true;
         }
 
-        apiKeyRepository.save(entity);
-
-        return GetResponseDto.builder()
+        GetResponseDto dto = GetResponseDto.builder()
                 .apiKeyId(apiKeyId)
                 .apiKeyName(entity.getApiKeyName())
                 .accessId(entity.getAccessId())
@@ -111,16 +129,26 @@ class ApiKeyService {
                 .createdAt(entity.getCreatedAt())
                 .expiresAt(entity.getExpiresAt())
                 .build();
+
+        if (changed) {
+            apiKeyRepository.save(entity);
+            emitterService.emitUpdated(entity);
+        }
+
+        return dto;
     }
 
+    @Transactional
     void deleteApiKey(UUID userId, UUID apiKeyId) {
         ApiKeyEntity entity = findOwned(userId, apiKeyId);
         apiKeyRepository.delete(entity);
+        emitterService.emitDeleted(entity);
     }
 
+    @Transactional(readOnly = true)
     ApiKeyVerifyDto verifyApiKey(String accessId, String accessSecret) {
-        ApiKey apiKey = apiKeyParserService.parse(accessId, accessSecret);
-        apiKey = apiKeyVerificationService.verify(apiKey);
+        ApiKey apiKey = parserService.parse(accessId, accessSecret);
+        apiKey = verificationService.verify(apiKey);
 
         return ApiKeyVerifyDto.builder()
                 .apiKeyId(apiKey.getApiKeyId())

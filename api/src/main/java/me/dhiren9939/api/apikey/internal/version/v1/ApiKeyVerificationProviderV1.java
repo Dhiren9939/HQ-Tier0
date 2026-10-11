@@ -11,6 +11,7 @@ import me.dhiren9939.api.apikey.internal.version.Sha256SecretHasher;
 import org.springframework.stereotype.Service;
 
 import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
 
@@ -20,6 +21,7 @@ import java.util.HexFormat;
 class ApiKeyVerificationProviderV1 implements ApiKeyVerificationProvider {
     public static final String SUPPORTED_KEY_VERSION = "V1";
 
+    private final Clock clock;
     private final ApiKeyRepository apiKeyRepository;
     private final Sha256SecretHasher secretHasher;
 
@@ -44,7 +46,7 @@ class ApiKeyVerificationProviderV1 implements ApiKeyVerificationProvider {
             throw new ApiKeyVerificationFailure("Could not verify the ApiKey");
         }
 
-        if (entity.getExpiresAt() != null && entity.getExpiresAt().isBefore(Instant.now())) {
+        if (entity.getExpiresAt() != null && entity.getExpiresAt().isBefore(Instant.now(clock))) {
             log.warn("ApiKey with accessId {} is expired", apiKey.getAccessId());
             throw new ApiKeyVerificationFailure("Could not verify the ApiKey");
         }
