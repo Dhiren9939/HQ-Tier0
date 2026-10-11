@@ -18,8 +18,8 @@ import java.util.HexFormat;
 @Service("verificationV1")
 @RequiredArgsConstructor
 class ApiKeyVerificationProviderV1 implements ApiKeyVerificationProvider {
+    public static final String SUPPORTED_KEY_VERSION = "V1";
 
-    private static final String SUPPORTED_KEY_VERSION = "V1";
     private final ApiKeyRepository apiKeyRepository;
     private final Sha256SecretHasher secretHasher;
 

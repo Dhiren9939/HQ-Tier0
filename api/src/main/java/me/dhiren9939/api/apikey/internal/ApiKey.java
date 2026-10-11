@@ -15,7 +15,7 @@ public class ApiKey {
     private String apiKeyName;
 
     private String keyVersion;
-    private boolean isVerified;
+    private boolean verified;
 
     private UUID userId;
     private UUID apiKeyId;
