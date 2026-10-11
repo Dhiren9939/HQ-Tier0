@@ -12,6 +12,7 @@ import java.util.UUID;
 public class ApiKey {
     private String accessId;
     private String accessSecret;
+    private String apiKeyName;
 
     private String keyVersion;
     private boolean isVerified;

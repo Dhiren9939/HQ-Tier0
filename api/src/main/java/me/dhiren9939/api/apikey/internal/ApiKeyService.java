@@ -22,7 +22,7 @@ class ApiKeyService {
     private final ApiKeyCreationService apiKeyCreationService;
     private final ApiKeyVerificationService apiKeyVerificationService;
 
-    CreateResponseDto createApiKey(UUID userId, String duration, String ingestionPermVal, String tenantPermVal, String channelPermVal) {
+    CreateResponseDto createApiKey(UUID userId, String apiKeyName, String duration, String ingestionPermVal, String tenantPermVal, String channelPermVal) {
         ApiKeyTriplet apiKeyTriplet = apiKeyCreationService.createApiKeyTriplet();
 
         Instant createdAt = Instant.now();
@@ -33,6 +33,7 @@ class ApiKeyService {
         ApiKeyPermissions.Channel channelPerm = ApiKeyPermissions.Channel.valueOf(channelPermVal);
 
         ApiKeyEntity entity = ApiKeyEntity.builder()
+                .apiKeyName(apiKeyName)
                 .userId(userId)
                 .accessId(apiKeyTriplet.accessId())
                 .accessSecretHash(apiKeyTriplet.secretHash())
@@ -46,6 +47,7 @@ class ApiKeyService {
         apiKeyRepository.save(entity);
 
         return CreateResponseDto.builder()
+                .apiKeyName(apiKeyName)
                 .apiKeyId(entity.getApiKeyId())
                 .accessId(apiKeyTriplet.accessId())
                 .accessSecret(apiKeyTriplet.accessSecret())
@@ -62,6 +64,7 @@ class ApiKeyService {
 
         return GetResponseDto.builder()
                 .apiKeyId(apiKeyId)
+                .apiKeyName(entity.getApiKeyName())
                 .accessId(entity.getAccessId())
                 .ingestionPermission(entity.getIngestionPermission())
                 .tenantPermission(entity.getTenantPermission())
@@ -71,8 +74,12 @@ class ApiKeyService {
                 .build();
     }
 
-    GetResponseDto updateApiKey(UUID userId, UUID apiKeyId, String duration, String ingestionPermVal, String tenantPermVal, String channelPermVal) {
+    GetResponseDto updateApiKey(UUID userId, UUID apiKeyId, String apiKeyName, String duration, String ingestionPermVal, String tenantPermVal, String channelPermVal) {
         ApiKeyEntity entity = findOwned(userId, apiKeyId);
+
+        if (apiKeyName != null) {
+            entity.setApiKeyName(apiKeyName);
+        }
 
         if (duration != null) {
             Instant now = Instant.now();
@@ -80,15 +87,15 @@ class ApiKeyService {
             entity.setExpiresAt(expiresAt);
         }
 
-        if(ingestionPermVal != null){
+        if (ingestionPermVal != null) {
             entity.setIngestionPermission(ApiKeyPermissions.Ingestion.valueOf(ingestionPermVal));
         }
 
-        if(tenantPermVal != null){
+        if (tenantPermVal != null) {
             entity.setTenantPermission(ApiKeyPermissions.Tenant.valueOf(tenantPermVal));
         }
 
-        if(channelPermVal != null){
+        if (channelPermVal != null) {
             entity.setChannelPermission(ApiKeyPermissions.Channel.valueOf(channelPermVal));
         }
 
@@ -96,6 +103,7 @@ class ApiKeyService {
 
         return GetResponseDto.builder()
                 .apiKeyId(apiKeyId)
+                .apiKeyName(entity.getApiKeyName())
                 .accessId(entity.getAccessId())
                 .ingestionPermission(entity.getIngestionPermission())
                 .tenantPermission(entity.getTenantPermission())
@@ -116,6 +124,7 @@ class ApiKeyService {
 
         return ApiKeyVerifyDto.builder()
                 .apiKeyId(apiKey.getApiKeyId())
+                .apiKeyName(apiKey.getApiKeyName())
                 .userId(apiKey.getUserId())
                 .ingestionPermission(apiKey.getIngestionPermission())
                 .tenantPermission(apiKey.getTenantPermission())
@@ -125,7 +134,7 @@ class ApiKeyService {
                 .build();
     }
 
-    private ApiKeyEntity findOwned(UUID userId, UUID apiKeyId){
+    private ApiKeyEntity findOwned(UUID userId, UUID apiKeyId) {
         return apiKeyRepository.findById(apiKeyId)
                 .filter(key -> key.getUserId().equals(userId))
                 .orElseThrow(() -> {

@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Builder
-public record GetResponseDto(UUID apiKeyId, String accessId,
+public record GetResponseDto(UUID apiKeyId, String accessId, String apiKeyName,
                              ApiKeyPermissions.Ingestion ingestionPermission,
                              ApiKeyPermissions.Tenant tenantPermission,
                              ApiKeyPermissions.Channel channelPermission,

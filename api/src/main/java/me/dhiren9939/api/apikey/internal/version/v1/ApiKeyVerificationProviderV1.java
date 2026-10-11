@@ -50,6 +50,7 @@ class ApiKeyVerificationProviderV1 implements ApiKeyVerificationProvider {
         }
 
         apiKey.setApiKeyId(entity.getApiKeyId());
+        apiKey.setApiKeyName(entity.getApiKeyName());
         apiKey.setUserId(entity.getUserId());
         apiKey.setIngestionPermission(entity.getIngestionPermission());
         apiKey.setTenantPermission(entity.getTenantPermission());

@@ -26,6 +26,7 @@ public class ApiKeyEntity {
     @Column(unique = true)
     private String accessId;
     private String accessSecretHash;
+    private String apiKeyName;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
