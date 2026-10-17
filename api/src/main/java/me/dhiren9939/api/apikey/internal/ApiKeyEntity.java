@@ -14,7 +14,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "api_keys")
+@Table(name = "api_keys", schema = "api_key")
 public class ApiKeyEntity {
 
     @Id

@@ -17,7 +17,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "outbox")
+@Table(name = "outbox", schema = "api_key")
 public class EventOutboxEntity {
 
     @Id
