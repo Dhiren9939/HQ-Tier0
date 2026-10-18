@@ -4,6 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+/**
+ * Delegates API key credential generation to the configured versioned provider.
+ */
 @Slf4j
 @Service
 class ApiKeyCreationService {

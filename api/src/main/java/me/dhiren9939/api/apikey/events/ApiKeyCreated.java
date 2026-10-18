@@ -6,6 +6,9 @@ import me.dhiren9939.api.apikey.ApiKeyPermissions;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Event emitted when an API key is created, including its persisted credential hash.
+ */
 @Builder
 public record ApiKeyCreated(String apiKeyName, UUID apiKeyId, UUID userId, String accessId,
                             String accessSecretHash,

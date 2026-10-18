@@ -6,6 +6,9 @@ import me.dhiren9939.api.apikey.ApiKeyPermissions;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Response containing API key metadata without exposing its secret.
+ */
 @Builder
 public record GetResponseDto(UUID apiKeyId, String accessId, String apiKeyName,
                              ApiKeyPermissions.Ingestion ingestionPermission,

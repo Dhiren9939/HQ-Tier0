@@ -7,9 +7,13 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 
+/**
+ * Calculates API key expiration timestamps for supported expiry durations.
+ */
 @Slf4j
 @Service
 class ApiKeyExpiry {
+    /** Supported API key lifetime choices. */
     enum Duration {
         ONE_DAY,
         ONE_MONTH,

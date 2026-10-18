@@ -5,6 +5,9 @@ import me.dhiren9939.api.apikey.ApiKeyPermissions;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Common event contract for API key creation, update, and deletion events.
+ */
 public sealed interface ApiKeyEvent permits ApiKeyCreated, ApiKeyUpdated, ApiKeyDeleted {
     String eventType();
 

@@ -9,6 +9,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Persists API key lifecycle events to the transactional outbox.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor

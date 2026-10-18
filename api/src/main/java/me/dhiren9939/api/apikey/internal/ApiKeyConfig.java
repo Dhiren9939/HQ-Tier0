@@ -6,6 +6,9 @@ import org.springframework.context.annotation.Configuration;
 import java.security.SecureRandom;
 import java.time.Clock;
 
+/**
+ * Provides shared secure-random and UTC clock beans for API key services.
+ */
 @Configuration
 class ApiKeyConfig {
 

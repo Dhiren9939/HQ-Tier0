@@ -6,6 +6,9 @@ import me.dhiren9939.api.apikey.ApiKeyFacade;
 import me.dhiren9939.api.apikey.ApiKeyVerifyDto;
 import org.springframework.stereotype.Component;
 
+/**
+ * Implements the public API key facade by delegating verification to the service layer.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor

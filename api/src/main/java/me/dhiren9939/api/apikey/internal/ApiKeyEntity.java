@@ -8,6 +8,9 @@ import org.hibernate.annotations.UuidGenerator;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * JPA representation of a stored API key and its owner, permissions, and expiry.
+ */
 @Entity
 @Getter
 @Setter

@@ -7,6 +7,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/**
+ * Selects a compatible versioned provider and delegates API key verification.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor

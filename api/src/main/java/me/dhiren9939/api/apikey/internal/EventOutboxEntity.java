@@ -11,6 +11,9 @@ import org.hibernate.annotations.UuidGenerator;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * JPA representation of an API key lifecycle event stored in the outbox.
+ */
 @Entity
 @Getter
 @Setter

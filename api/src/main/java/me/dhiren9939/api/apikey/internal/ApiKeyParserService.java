@@ -7,6 +7,9 @@ import org.springframework.stereotype.Service;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Parses a presented access identifier and extracts its key format version.
+ */
 @Slf4j
 @Service
 class ApiKeyParserService {

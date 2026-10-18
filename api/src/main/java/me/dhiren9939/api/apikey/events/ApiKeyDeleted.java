@@ -6,6 +6,9 @@ import me.dhiren9939.api.apikey.ApiKeyPermissions;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Event emitted when an API key is deleted.
+ */
 @Builder
 public record ApiKeyDeleted(String apiKeyName, UUID apiKeyId, UUID userId, String accessId,
                             ApiKeyPermissions.Ingestion ingestionPermission,

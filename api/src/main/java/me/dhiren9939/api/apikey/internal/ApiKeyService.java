@@ -14,6 +14,9 @@ import java.time.Instant;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
+/**
+ * Coordinates API key creation, lookup, updates, deletion, and credential verification.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
