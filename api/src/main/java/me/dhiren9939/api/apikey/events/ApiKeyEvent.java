@@ -1,6 +1,6 @@
 package me.dhiren9939.api.apikey.events;
 
-import me.dhiren9939.api.apikey.ApiKeyPermissions;
+import me.dhiren9939.api.apikey.Permissions;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -19,11 +19,7 @@ public sealed interface ApiKeyEvent permits ApiKeyCreated, ApiKeyUpdated, ApiKey
 
     String accessId();
 
-    ApiKeyPermissions.Ingestion ingestionPermission();
-
-    ApiKeyPermissions.Tenant tenantPermission();
-
-    ApiKeyPermissions.Channel channelPermission();
+    Permissions permissions();
 
     Instant createdAt();
 

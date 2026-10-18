@@ -1,7 +1,7 @@
 package me.dhiren9939.api.apikey.events;
 
 import lombok.Builder;
-import me.dhiren9939.api.apikey.ApiKeyPermissions;
+import me.dhiren9939.api.apikey.Permissions;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -11,9 +11,7 @@ import java.util.UUID;
  */
 @Builder
 public record ApiKeyUpdated(String apiKeyName, UUID apiKeyId, UUID userId, String accessId,
-                            ApiKeyPermissions.Ingestion ingestionPermission,
-                            ApiKeyPermissions.Tenant tenantPermission,
-                            ApiKeyPermissions.Channel channelPermission,
+                            Permissions permissions,
                             Instant createdAt, Instant expiresAt) implements ApiKeyEvent {
 
     public static final String EVENT_TYPE = "apiKey.updated";

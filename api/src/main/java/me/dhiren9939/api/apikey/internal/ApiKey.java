@@ -2,7 +2,7 @@ package me.dhiren9939.api.apikey.internal;
 
 import lombok.Getter;
 import lombok.Setter;
-import me.dhiren9939.api.apikey.ApiKeyPermissions;
+import me.dhiren9939.api.apikey.Permissions;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -35,12 +35,8 @@ public class ApiKey {
     /** Identifier of the API key record. Populated after verification. */
     private UUID apiKeyId;
 
-    /** Allowed ingestion operations. Populated after verification. */
-    private ApiKeyPermissions.Ingestion ingestionPermission;
-    /** Allowed tenant operations. Populated after verification. */
-    private ApiKeyPermissions.Tenant tenantPermission;
-    /** Allowed channel operations. Populated after verification. */
-    private ApiKeyPermissions.Channel channelPermission;
+    /** Allowed operations, grouped by ingestion, tenant, and channel. Populated after verification. */
+    private Permissions permissions;
 
     /** Time the API key was created. Populated after verification. */
     private Instant createdAt;

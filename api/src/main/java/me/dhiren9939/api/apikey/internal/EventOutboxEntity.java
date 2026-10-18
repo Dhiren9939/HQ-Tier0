@@ -2,7 +2,7 @@ package me.dhiren9939.api.apikey.internal;
 
 import jakarta.persistence.*;
 import lombok.*;
-import me.dhiren9939.api.apikey.ApiKeyPermissions;
+import me.dhiren9939.api.apikey.Permissions;
 import me.dhiren9939.api.apikey.events.ApiKeyCreated;
 import me.dhiren9939.api.apikey.events.ApiKeyDeleted;
 import me.dhiren9939.api.apikey.events.ApiKeyUpdated;
@@ -37,14 +37,13 @@ public class EventOutboxEntity {
     private String accessSecretHash = null;
     private String apiKeyName;
 
-    @Enumerated(EnumType.STRING)
-    private ApiKeyPermissions.Ingestion ingestionPermission;
-
-    @Enumerated(EnumType.STRING)
-    private ApiKeyPermissions.Tenant tenantPermission;
-
-    @Enumerated(EnumType.STRING)
-    private ApiKeyPermissions.Channel channelPermission;
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "ingestionPermission", column = @Column(name = "ingestion_permission")),
+            @AttributeOverride(name = "tenantPermission", column = @Column(name = "tenant_permission")),
+            @AttributeOverride(name = "channelPermission", column = @Column(name = "channel_permission"))
+    })
+    private Permissions permissions;
 
     private Instant createdAt;
     private Instant expiresAt;
@@ -57,9 +56,7 @@ public class EventOutboxEntity {
                 .accessId(event.accessId())
                 .accessSecretHash(event.accessSecretHash())
                 .apiKeyName(event.apiKeyName())
-                .ingestionPermission(event.ingestionPermission())
-                .tenantPermission(event.tenantPermission())
-                .channelPermission(event.channelPermission())
+                .permissions(event.permissions())
                 .createdAt(event.createdAt())
                 .expiresAt(event.expiresAt())
                 .build();
@@ -72,9 +69,7 @@ public class EventOutboxEntity {
                 .userId(event.userId())
                 .accessId(event.accessId())
                 .apiKeyName(event.apiKeyName())
-                .ingestionPermission(event.ingestionPermission())
-                .tenantPermission(event.tenantPermission())
-                .channelPermission(event.channelPermission())
+                .permissions(event.permissions())
                 .createdAt(event.createdAt())
                 .expiresAt(event.expiresAt())
                 .build();
@@ -87,9 +82,7 @@ public class EventOutboxEntity {
                 .userId(event.userId())
                 .accessId(event.accessId())
                 .apiKeyName(event.apiKeyName())
-                .ingestionPermission(event.ingestionPermission())
-                .tenantPermission(event.tenantPermission())
-                .channelPermission(event.channelPermission())
+                .permissions(event.permissions())
                 .createdAt(event.createdAt())
                 .expiresAt(event.expiresAt())
                 .build();

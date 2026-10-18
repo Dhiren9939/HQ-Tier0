@@ -27,9 +27,7 @@ class ApiKeyEventEmitterService {
                 .userId(entity.getUserId())
                 .accessId(entity.getAccessId())
                 .accessSecretHash(entity.getAccessSecretHash())
-                .ingestionPermission(entity.getIngestionPermission())
-                .tenantPermission(entity.getTenantPermission())
-                .channelPermission(entity.getChannelPermission())
+                .permissions(entity.getPermissions())
                 .createdAt(entity.getCreatedAt())
                 .expiresAt(entity.getExpiresAt())
                 .build();
@@ -44,9 +42,7 @@ class ApiKeyEventEmitterService {
                 .apiKeyId(entity.getApiKeyId())
                 .userId(entity.getUserId())
                 .accessId(entity.getAccessId())
-                .ingestionPermission(entity.getIngestionPermission())
-                .tenantPermission(entity.getTenantPermission())
-                .channelPermission(entity.getChannelPermission())
+                .permissions(entity.getPermissions())
                 .createdAt(entity.getCreatedAt())
                 .expiresAt(entity.getExpiresAt())
                 .build();
@@ -61,9 +57,7 @@ class ApiKeyEventEmitterService {
                 .apiKeyId(entity.getApiKeyId())
                 .userId(entity.getUserId())
                 .accessId(entity.getAccessId())
-                .ingestionPermission(entity.getIngestionPermission())
-                .tenantPermission(entity.getTenantPermission())
-                .channelPermission(entity.getChannelPermission())
+                .permissions(entity.getPermissions())
                 .createdAt(entity.getCreatedAt())
                 .expiresAt(entity.getExpiresAt())
                 .build();

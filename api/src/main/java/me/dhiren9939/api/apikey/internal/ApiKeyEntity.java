@@ -3,6 +3,7 @@ package me.dhiren9939.api.apikey.internal;
 import jakarta.persistence.*;
 import lombok.*;
 import me.dhiren9939.api.apikey.ApiKeyPermissions;
+import me.dhiren9939.api.apikey.Permissions;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
@@ -32,17 +33,19 @@ public class ApiKeyEntity {
     private String apiKeyName;
 
     @Builder.Default
-    @Enumerated(EnumType.STRING)
-    private ApiKeyPermissions.Ingestion ingestionPermission = ApiKeyPermissions.Ingestion.NONE;
-
-    @Builder.Default
-    @Enumerated(EnumType.STRING)
-    private ApiKeyPermissions.Tenant tenantPermission = ApiKeyPermissions.Tenant.NONE;
-
-    @Builder.Default
-    @Enumerated(EnumType.STRING)
-    private ApiKeyPermissions.Channel channelPermission = ApiKeyPermissions.Channel.NONE;
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "ingestionPermission", column = @Column(name = "ingestion_permission")),
+            @AttributeOverride(name = "tenantPermission", column = @Column(name = "tenant_permission")),
+            @AttributeOverride(name = "channelPermission", column = @Column(name = "channel_permission"))
+    })
+    private Permissions permissions = new Permissions(
+            ApiKeyPermissions.Ingestion.NONE,
+            ApiKeyPermissions.Tenant.NONE,
+            ApiKeyPermissions.Channel.NONE
+    );
 
     private Instant createdAt;
     private Instant expiresAt;
+
 }

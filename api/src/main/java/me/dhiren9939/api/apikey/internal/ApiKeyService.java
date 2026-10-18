@@ -2,8 +2,8 @@ package me.dhiren9939.api.apikey.internal;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import me.dhiren9939.api.apikey.ApiKeyPermissions;
 import me.dhiren9939.api.apikey.ApiKeyVerifyDto;
+import me.dhiren9939.api.apikey.Permissions;
 import me.dhiren9939.api.apikey.internal.dto.CreateResponseDto;
 import me.dhiren9939.api.apikey.internal.dto.GetResponseDto;
 import org.springframework.stereotype.Service;
@@ -33,9 +33,7 @@ class ApiKeyService {
 
     @Transactional
     CreateResponseDto createApiKey(UUID userId, String apiKeyName, ApiKeyExpiry.Duration duration,
-                                   ApiKeyPermissions.Ingestion ingestionPerm,
-                                   ApiKeyPermissions.Tenant tenantPerm,
-                                   ApiKeyPermissions.Channel channelPerm) {
+                                   Permissions permissions) {
         ApiKeyTriplet apiKeyTriplet = creationService.createApiKeyTriplet();
 
         Instant createdAt = Instant.now(clock);
@@ -46,9 +44,7 @@ class ApiKeyService {
                 .userId(userId)
                 .accessId(apiKeyTriplet.accessId())
                 .accessSecretHash(apiKeyTriplet.secretHash())
-                .ingestionPermission(ingestionPerm)
-                .tenantPermission(tenantPerm)
-                .channelPermission(channelPerm)
+                .permissions(permissions)
                 .createdAt(createdAt)
                 .expiresAt(expiresAt)
                 .build();
@@ -60,9 +56,7 @@ class ApiKeyService {
                 .apiKeyId(entity.getApiKeyId())
                 .accessId(apiKeyTriplet.accessId())
                 .accessSecret(apiKeyTriplet.accessSecret())
-                .ingestionPermission(ingestionPerm)
-                .tenantPermission(tenantPerm)
-                .channelPermission(channelPerm)
+                .permissions(permissions)
                 .createdAt(createdAt)
                 .expiresAt(expiresAt)
                 .build();
@@ -79,9 +73,7 @@ class ApiKeyService {
                 .apiKeyId(apiKeyId)
                 .apiKeyName(entity.getApiKeyName())
                 .accessId(entity.getAccessId())
-                .ingestionPermission(entity.getIngestionPermission())
-                .tenantPermission(entity.getTenantPermission())
-                .channelPermission(entity.getChannelPermission())
+                .permissions(entity.getPermissions())
                 .createdAt(entity.getCreatedAt())
                 .expiresAt(entity.getExpiresAt())
                 .build();
@@ -89,9 +81,7 @@ class ApiKeyService {
 
     @Transactional
     GetResponseDto updateApiKey(UUID userId, UUID apiKeyId, String apiKeyName, ApiKeyExpiry.Duration duration,
-                                ApiKeyPermissions.Ingestion ingestionPerm,
-                                ApiKeyPermissions.Tenant tenantPerm,
-                                ApiKeyPermissions.Channel channelPerm) {
+                                Permissions permissions) {
         ApiKeyEntity entity = findOwned(userId, apiKeyId);
         boolean changed = false;
 
@@ -107,18 +97,21 @@ class ApiKeyService {
             changed = true;
         }
 
-        if (ingestionPerm != null && ingestionPerm != entity.getIngestionPermission()) {
-            entity.setIngestionPermission(ingestionPerm);
-            changed = true;
-        }
+        Permissions currentPermissions = entity.getPermissions();
+        Permissions updatedPermissions = new Permissions(
+                permissions.ingestionPermission() != null
+                        ? permissions.ingestionPermission()
+                        : currentPermissions.ingestionPermission(),
+                permissions.tenantPermission() != null
+                        ? permissions.tenantPermission()
+                        : currentPermissions.tenantPermission(),
+                permissions.channelPermission() != null
+                        ? permissions.channelPermission()
+                        : currentPermissions.channelPermission()
+        );
 
-        if (tenantPerm != null && tenantPerm != entity.getTenantPermission()) {
-            entity.setTenantPermission(tenantPerm);
-            changed = true;
-        }
-
-        if (channelPerm != null && channelPerm != entity.getChannelPermission()) {
-            entity.setChannelPermission(channelPerm);
+        if (!updatedPermissions.equals(currentPermissions)) {
+            entity.setPermissions(updatedPermissions);
             changed = true;
         }
 
@@ -126,9 +119,7 @@ class ApiKeyService {
                 .apiKeyId(apiKeyId)
                 .apiKeyName(entity.getApiKeyName())
                 .accessId(entity.getAccessId())
-                .ingestionPermission(entity.getIngestionPermission())
-                .tenantPermission(entity.getTenantPermission())
-                .channelPermission(entity.getChannelPermission())
+                .permissions(entity.getPermissions())
                 .createdAt(entity.getCreatedAt())
                 .expiresAt(entity.getExpiresAt())
                 .build();
@@ -157,9 +148,7 @@ class ApiKeyService {
                 .apiKeyId(apiKey.getApiKeyId())
                 .apiKeyName(apiKey.getApiKeyName())
                 .userId(apiKey.getUserId())
-                .ingestionPermission(apiKey.getIngestionPermission())
-                .tenantPermission(apiKey.getTenantPermission())
-                .channelPermission(apiKey.getChannelPermission())
+                .permissions(apiKey.getPermissions())
                 .createdAt(apiKey.getCreatedAt())
                 .expiresAt(apiKey.getExpiresAt())
                 .build();
