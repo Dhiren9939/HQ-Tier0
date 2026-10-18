@@ -141,16 +141,16 @@ class ApiKeyService {
 
     @Transactional(readOnly = true)
     ApiKeyVerifyDto verifyApiKey(String accessId, String accessSecret) {
-        ApiKey apiKey = parserService.parse(accessId, accessSecret);
-        apiKey = verificationService.verify(apiKey);
+        ApiKeyToken apiKeyToken = parserService.parse(accessId, accessSecret);
+        apiKeyToken = verificationService.verify(apiKeyToken);
 
         return ApiKeyVerifyDto.builder()
-                .apiKeyId(apiKey.getApiKeyId())
-                .apiKeyName(apiKey.getApiKeyName())
-                .userId(apiKey.getUserId())
-                .permissions(apiKey.getPermissions())
-                .createdAt(apiKey.getCreatedAt())
-                .expiresAt(apiKey.getExpiresAt())
+                .apiKeyId(apiKeyToken.getApiKeyId())
+                .apiKeyName(apiKeyToken.getApiKeyName())
+                .userId(apiKeyToken.getUserId())
+                .permissions(apiKeyToken.getPermissions())
+                .createdAt(apiKeyToken.getCreatedAt())
+                .expiresAt(apiKeyToken.getExpiresAt())
                 .build();
     }
 

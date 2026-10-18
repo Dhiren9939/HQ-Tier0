@@ -17,7 +17,7 @@ import java.util.UUID;
  */
 @Getter
 @Setter
-public class ApiKey {
+public class ApiKeyToken {
     /** Public identifier supplied with the API key. */
     private String accessId;
     /** Secret supplied by the caller. Sensitive; do not log. */
@@ -44,7 +44,7 @@ public class ApiKey {
     private Instant expiresAt;
 
     /** Creates a parsed key from its identifier, secret, and format version. */
-    ApiKey(String accessId, String accessSecret, String keyVersion){
+    ApiKeyToken(String accessId, String accessSecret, String keyVersion){
         this.accessId = accessId;
         this.accessSecret = accessSecret;
         this.keyVersion = keyVersion;

@@ -16,15 +16,15 @@ import java.util.List;
 class ApiKeyVerificationService {
     private final List<ApiKeyVerificationProvider> providers;
 
-    ApiKey verify(ApiKey apiKey){
+    ApiKeyToken verify(ApiKeyToken apiKeyToken){
         ApiKeyVerificationProvider provider = providers.stream()
-                .filter(p -> p.supports(apiKey))
+                .filter(p -> p.supports(apiKeyToken))
                 .findFirst()
                 .orElseThrow(() -> {
-                    log.error("Could not find a verification strategy for version {}", apiKey.getKeyVersion());
+                    log.error("Could not find a verification strategy for version {}", apiKeyToken.getKeyVersion());
                     return new ApiKeyVerificationFailure("Could not verify the ApiKey");
                 });
 
-        return provider.verify(apiKey);
+        return provider.verify(apiKeyToken);
     }
 }

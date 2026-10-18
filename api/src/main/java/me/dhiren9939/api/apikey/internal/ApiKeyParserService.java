@@ -16,13 +16,13 @@ class ApiKeyParserService {
 
     private static final Pattern API_KEY_PATTERN = Pattern.compile("^(V\\d+)_.+$");
 
-    ApiKey parse(String accessId, String accessKey){
+    ApiKeyToken parse(String accessId, String accessKey){
         Matcher matcher = API_KEY_PATTERN.matcher(accessId);
         if(!matcher.matches())
             throw new ApiKeyParsingFailure("Invalid ApiKey format");
 
         String version = matcher.group(1);
 
-        return new ApiKey(accessId, accessKey, version);
+        return new ApiKeyToken(accessId, accessKey, version);
     }
 }
