@@ -27,25 +27,39 @@ public class EventOutboxEntity {
     @GeneratedValue
     @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
     private UUID eventId;
+
+    @Column(nullable = false, length = 50)
     private String eventType;
 
+    @Column(nullable = false)
     private UUID apiKeyId;
+
+    @Column(nullable = false)
     private UUID userId;
 
+    @Column(nullable = false, length = 256)
     private String accessId;
+
     @Builder.Default
     private String accessSecretHash = null;
+
+    @Column(nullable = false, length = 256)
     private String apiKeyName;
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "ingestionPermission", column = @Column(name = "ingestion_permission")),
-            @AttributeOverride(name = "tenantPermission", column = @Column(name = "tenant_permission")),
-            @AttributeOverride(name = "channelPermission", column = @Column(name = "channel_permission"))
+            @AttributeOverride(name = "ingestionPermission",
+                    column = @Column(name = "ingestion_permission", nullable = false, length = 50)),
+            @AttributeOverride(name = "tenantPermission",
+                    column = @Column(name = "tenant_permission", nullable = false, length = 50)),
+            @AttributeOverride(name = "channelPermission",
+                    column = @Column(name = "channel_permission", nullable = false, length = 50))
     })
     private Permissions permissions;
 
+    @Column(nullable = false)
     private Instant createdAt;
+
     private Instant expiresAt;
 
     public static EventOutboxEntity from(ApiKeyCreated event) {

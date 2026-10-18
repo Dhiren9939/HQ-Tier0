@@ -19,7 +19,7 @@ class ApiKeyParserService {
     ApiKeyToken parse(String accessId, String accessKey){
         Matcher matcher = API_KEY_PATTERN.matcher(accessId);
         if(!matcher.matches())
-            throw new ApiKeyParsingFailure("Invalid ApiKey format");
+            throw new ApiKeyParsingFailure("Invalid API key format");
 
         String version = matcher.group(1);
 

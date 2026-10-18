@@ -22,7 +22,7 @@ class ApiKeyVerificationService {
                 .findFirst()
                 .orElseThrow(() -> {
                     log.error("Could not find a verification strategy for version {}", apiKeyToken.getKeyVersion());
-                    return new ApiKeyVerificationFailure("Could not verify the ApiKey");
+                    return new ApiKeyVerificationFailure("Could not verify the API key");
                 });
 
         return provider.verify(apiKeyToken);

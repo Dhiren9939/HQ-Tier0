@@ -25,19 +25,32 @@ public class ApiKeyEntity {
     @GeneratedValue
     @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
     private UUID apiKeyId;
+
+    @Version
+    @Column(nullable = false)
+    private long version;
+
+    @Column(nullable = false)
     private UUID userId;
 
-    @Column(unique = true)
+    @Column(nullable = false, unique = true, length = 256)
     private String accessId;
+
+    @Column(nullable = false, length = 256)
     private String accessSecretHash;
+
+    @Column(nullable = false, length = 256)
     private String apiKeyName;
 
     @Builder.Default
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "ingestionPermission", column = @Column(name = "ingestion_permission")),
-            @AttributeOverride(name = "tenantPermission", column = @Column(name = "tenant_permission")),
-            @AttributeOverride(name = "channelPermission", column = @Column(name = "channel_permission"))
+            @AttributeOverride(name = "ingestionPermission",
+                    column = @Column(name = "ingestion_permission", nullable = false, length = 50)),
+            @AttributeOverride(name = "tenantPermission",
+                    column = @Column(name = "tenant_permission", nullable = false, length = 50)),
+            @AttributeOverride(name = "channelPermission",
+                    column = @Column(name = "channel_permission", nullable = false, length = 50))
     })
     private Permissions permissions = new Permissions(
             ApiKeyPermissions.Ingestion.NONE,
@@ -45,7 +58,9 @@ public class ApiKeyEntity {
             ApiKeyPermissions.Channel.NONE
     );
 
+    @Column(nullable = false)
     private Instant createdAt;
+
     private Instant expiresAt;
 
 }

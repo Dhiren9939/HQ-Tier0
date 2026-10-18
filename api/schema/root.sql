@@ -1,3 +1,0 @@
--- Manually applied schema (spring.jpa.hibernate.ddl-auto=none).
--- Keep this in sync with the JPA entities by hand; re-run the relevant
--- CREATE/ALTER statements against maindb after changing an entity.
