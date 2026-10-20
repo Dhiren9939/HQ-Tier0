@@ -12,9 +12,9 @@ import java.time.temporal.ChronoUnit;
  */
 @Slf4j
 @Service
-class ApiKeyExpiry {
+public class ApiKeyExpiry {
     /** Supported API key lifetime choices. */
-    enum Duration {
+    public enum Duration {
         ONE_DAY,
         ONE_MONTH,
         NEVER

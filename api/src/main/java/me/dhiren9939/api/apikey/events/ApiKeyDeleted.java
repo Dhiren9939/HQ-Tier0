@@ -10,7 +10,8 @@ import java.util.UUID;
  * Event emitted when an API key is deleted.
  */
 @Builder
-public record ApiKeyDeleted(String apiKeyName, UUID apiKeyId, UUID userId, String accessId,
+public record ApiKeyDeleted(String apiKeyName, UUID apiKeyId, long version, Instant emittedAt,
+                            UUID userId, String accessId,
                             Permissions permissions,
                             Instant createdAt, Instant expiresAt) implements ApiKeyEvent {
 

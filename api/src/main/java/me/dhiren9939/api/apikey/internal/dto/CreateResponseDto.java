@@ -2,6 +2,7 @@ package me.dhiren9939.api.apikey.internal.dto;
 
 import lombok.Builder;
 import me.dhiren9939.api.apikey.Permissions;
+import me.dhiren9939.api.apikey.internal.ApiKeyUpdateStatus;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -12,5 +13,5 @@ import java.util.UUID;
 @Builder
 public record CreateResponseDto(UUID apiKeyId, String accessId, String accessSecret, String apiKeyName,
                                 Permissions permissions,
-                                Instant createdAt, Instant expiresAt) {
+                                Instant createdAt, Instant expiresAt, ApiKeyUpdateStatus updateStatus) {
 }

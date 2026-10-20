@@ -1,22 +1,32 @@
 package me.dhiren9939.api.apikey.internal;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import me.dhiren9939.api.apikey.ApiKeyFacade;
 import me.dhiren9939.api.apikey.ApiKeyVerifyDto;
 import org.springframework.stereotype.Component;
 
 /**
- * Implements the public API key facade by delegating verification to the service layer.
+ * Implements API-key verification through the parsing and provider services.
  */
-@Slf4j
 @Component
-@RequiredArgsConstructor
 class ApiKeyFacadeImpl implements ApiKeyFacade {
 
-    private final ApiKeyService apiKeyService;
+    private final ApiKeyParserService parserService;
+    private final ApiKeyVerificationService verificationService;
+
+    ApiKeyFacadeImpl(ApiKeyParserService parserService, ApiKeyVerificationService verificationService) {
+        this.parserService = parserService;
+        this.verificationService = verificationService;
+    }
 
     public ApiKeyVerifyDto verifyApiKey(String accessId, String accessSecret) {
-        return apiKeyService.verifyApiKey(accessId, accessSecret);
+        ApiKeyToken token = verificationService.verify(parserService.parse(accessId, accessSecret));
+        return ApiKeyVerifyDto.builder()
+                .apiKeyId(token.getApiKeyId())
+                .apiKeyName(token.getApiKeyName())
+                .userId(token.getUserId())
+                .permissions(token.getPermissions())
+                .createdAt(token.getCreatedAt())
+                .expiresAt(token.getExpiresAt())
+                .build();
     }
 }

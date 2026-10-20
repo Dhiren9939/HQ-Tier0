@@ -8,8 +8,12 @@ import java.util.UUID;
 /**
  * Common event contract for API key creation, update, and deletion events.
  */
-public sealed interface ApiKeyEvent permits ApiKeyCreated, ApiKeyUpdated, ApiKeyDeleted {
+public interface ApiKeyEvent {
     String eventType();
+
+    long version();
+
+    Instant emittedAt();
 
     String apiKeyName();
 

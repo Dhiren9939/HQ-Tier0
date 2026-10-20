@@ -21,14 +21,12 @@ import java.util.UUID;
 @Table(name = "api_keys", schema = "api_key")
 public class ApiKeyEntity {
 
+     static final int NON_EXISTENT = 0;
+
     @Id
     @GeneratedValue
     @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
     private UUID apiKeyId;
-
-    @Version
-    @Column(nullable = false)
-    private long version;
 
     @Column(nullable = false)
     private UUID userId;
@@ -63,4 +61,23 @@ public class ApiKeyEntity {
 
     private Instant expiresAt;
 
+    @OneToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JoinColumn(name = "next_id")
+    private ApiKeyNextEntity next;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private long appliedVersion = 0;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private long issuedVersion = 1;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private long desiredVersion = 1;
+
+    @Version
+    @Column(nullable = false)
+    private long version;
 }

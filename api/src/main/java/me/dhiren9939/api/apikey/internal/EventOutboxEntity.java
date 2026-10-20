@@ -34,6 +34,12 @@ public class EventOutboxEntity {
     @Column(nullable = false)
     private UUID apiKeyId;
 
+    @Column(name = "change_version", nullable = false)
+    private long version;
+
+    @Column(nullable = false)
+    private Instant emittedAt;
+
     @Column(nullable = false)
     private UUID userId;
 
@@ -66,6 +72,8 @@ public class EventOutboxEntity {
         return EventOutboxEntity.builder()
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())
+                .version(event.version())
+                .emittedAt(event.emittedAt())
                 .userId(event.userId())
                 .accessId(event.accessId())
                 .accessSecretHash(event.accessSecretHash())
@@ -80,6 +88,8 @@ public class EventOutboxEntity {
         return EventOutboxEntity.builder()
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())
+                .version(event.version())
+                .emittedAt(event.emittedAt())
                 .userId(event.userId())
                 .accessId(event.accessId())
                 .apiKeyName(event.apiKeyName())
@@ -93,6 +103,8 @@ public class EventOutboxEntity {
         return EventOutboxEntity.builder()
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())
+                .version(event.version())
+                .emittedAt(event.emittedAt())
                 .userId(event.userId())
                 .accessId(event.accessId())
                 .apiKeyName(event.apiKeyName())

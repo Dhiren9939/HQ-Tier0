@@ -10,7 +10,8 @@ import java.util.UUID;
  * Event emitted when an API key is created, including its persisted credential hash.
  */
 @Builder
-public record ApiKeyCreated(String apiKeyName, UUID apiKeyId, UUID userId, String accessId,
+public record ApiKeyCreated(String apiKeyName, UUID apiKeyId, long version, Instant emittedAt,
+                            UUID userId, String accessId,
                             String accessSecretHash,
                             Permissions permissions,
                             Instant createdAt, Instant expiresAt) implements ApiKeyEvent {

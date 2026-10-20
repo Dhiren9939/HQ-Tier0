@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import me.dhiren9939.api.apikey.ApiKeyVerificationFailure;
 import me.dhiren9939.api.apikey.internal.ApiKeyToken;
-import me.dhiren9939.api.apikey.internal.ApiKey;
+import me.dhiren9939.api.apikey.internal.ApiKeyDto;
 import me.dhiren9939.api.apikey.internal.ApiKeyPersistenceService;
 import me.dhiren9939.api.apikey.internal.ApiKeyVerificationProvider;
 import me.dhiren9939.api.apikey.internal.version.Sha256SecretHasher;
@@ -33,7 +33,7 @@ class ApiKeyVerificationProviderV1 implements ApiKeyVerificationProvider {
 
     @Override
     public ApiKeyToken verify(ApiKeyToken apiKeyToken) {
-        ApiKey apiKey;
+        ApiKeyDto apiKey;
         try {
             apiKey = persistenceService.getForVerification(apiKeyToken.getAccessId());
         } catch (NoSuchElementException exception) {
