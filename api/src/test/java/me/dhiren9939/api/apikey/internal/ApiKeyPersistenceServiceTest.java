@@ -566,6 +566,26 @@ class ApiKeyPersistenceServiceTest {
         }
 
         @Test
+        @DisplayName("returns existing DTO when name update has same value")
+        void noOpSameName() {
+            ApiKeyEntity entity = existingEntity();
+            when(apiKeyRepository.findById(API_KEY_ID)).thenReturn(Optional.of(entity));
+
+            ApiKeyDto result = service.update(USER_ID, API_KEY_ID, API_KEY_NAME, null, null);
+
+            verify(apiKeyRepository, never()).save(any());
+            verify(apiKeyNextRepository, never()).save(any());
+            verify(eventEmitterService, never()).emitUpdated(any());
+
+            assertThat(entity.getIssuedVersion()).isEqualTo(1);
+            assertThat(entity.getDesiredVersion()).isEqualTo(1);
+            assertThat(entity.getNext()).isNull();
+
+            assertDtoMatches(result, API_KEY_ID, USER_ID, ACCESS_ID, null, null,
+                    API_KEY_NAME, DEFAULT_PERMISSIONS, NOW, EXPIRES_AT, null);
+        }
+
+        @Test
         @DisplayName("throws ApiKeyNotFoundException when entity has pending creation")
         void rejectPendingCreation() {
             ApiKeyEntity entity = existingEntity();

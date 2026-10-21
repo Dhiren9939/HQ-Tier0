@@ -84,21 +84,6 @@ public class ApiKeyPersistenceService {
         return ApiKeyDto.fromEntity(findOwned(userId, apiKeyId));
     }
 
-    @Transactional(readOnly = true)
-    public ApiKeyDto getForVerification(String accessId) {
-        ApiKeyEntity entity = apiKeyRepository.findByAccessId(accessId)
-                .orElseThrow(() -> {
-                    log.warn("No ApiKey found for accessId={}", accessId);
-                    return new ApiKeyNotFoundException();
-                });
-
-        if (entity.getAppliedVersion() == ApiKeyEntity.NON_EXISTENT) {
-            log.warn("Verification called for a pending create ApiKey with accessId={}", accessId);
-            throw new ApiKeyNotFoundException();
-        }
-        return ApiKeyDto.fromEntity(entity).withSecretHash(entity.getAccessSecretHash());
-    }
-
     public ApiKeyDto update(UUID userId, UUID apiKeyId, String apiKeyName, ApiKeyExpiry.Duration duration, Permissions permissionUpdates) {
         try {
             return optimisticLockRetry.execute(() -> transactionTemplate.execute(_ -> updateOnce(userId, apiKeyId, apiKeyName, duration, permissionUpdates)));
@@ -223,6 +208,27 @@ public class ApiKeyPersistenceService {
 
         return ApiKeyDto.fromEntity(entity);
     }
+
+    @Transactional(readOnly = true)
+    public ApiKeyDto getForVerification(String accessId) {
+        ApiKeyEntity entity = apiKeyRepository.findByAccessId(accessId)
+                .orElseThrow(() -> {
+                    log.warn("No ApiKey found for accessId={}", accessId);
+                    return new ApiKeyNotFoundException();
+                });
+
+        if (entity.getAppliedVersion() == ApiKeyEntity.NON_EXISTENT) {
+            log.warn("Verification called for a pending create ApiKey with accessId={}", accessId);
+            throw new ApiKeyNotFoundException();
+        }
+        return ApiKeyDto.fromEntity(entity).withSecretHash(entity.getAccessSecretHash());
+    }
+
+    @Transactional
+    void markUpdateSuccessful(){}
+
+    @Transactional
+    void markUpdateFailed(){}
 
     private ApiKeyEntity findOwned(UUID userId, UUID apiKeyId) {
         return apiKeyRepository.findById(apiKeyId)
