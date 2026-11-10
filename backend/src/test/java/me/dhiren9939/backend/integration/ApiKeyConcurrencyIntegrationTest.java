@@ -77,11 +77,11 @@ class ApiKeyConcurrencyIntegrationTest extends AccessIntegrationTest {
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
         assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(2);
         assertThat(count("access.pending_changes")).isEqualTo(1);
-        assertThat(count("access.outbox where event_type = 'apiKey.updated'")).isEqualTo(1);
+        assertThat(count("access.outbox where event_type = 'apiKey.projection.update'")).isEqualTo(1);
         assertThat(outbox()).extracting(OutboxRow::version).containsExactly(1L, 2L);
         String pendingName = jdbc.queryForObject("select api_key_name from access.pending_changes", String.class);
         String eventName = jdbc.queryForObject(
-                "select api_key_name from access.outbox where event_type = 'apiKey.updated'", String.class);
+                "select api_key_name from access.outbox where event_type = 'apiKey.projection.update'", String.class);
         assertThat(eventName).as("the event describes the change that actually won").isEqualTo(pendingName);
     }
 }

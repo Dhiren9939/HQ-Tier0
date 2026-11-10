@@ -5,8 +5,8 @@ import me.dhiren9939.backend.access.domain.ApiKey;
 import me.dhiren9939.backend.access.domain.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.ApiKeyState;
 import me.dhiren9939.backend.access.domain.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.access.domain.ChangeKind;
-import me.dhiren9939.backend.shared.access.events.ApiKeyDeleted;
+import me.dhiren9939.backend.shared.access.events.domain.ChangeKind;
+import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,7 +24,7 @@ class DeleteApiKeyHandlerTest {
     @BeforeEach
     void setUp() {
         apiKeys = new InMemoryApiKeys();
-        handler = new DeleteApiKeyHandler(apiKeys, CLOCK);
+        handler = new DeleteApiKeyHandler(apiKeys, CLOCK, transactions());
     }
 
     private void delete(UUID userId, ApiKey key) {
@@ -41,7 +41,7 @@ class DeleteApiKeyHandlerTest {
         assertThat(key.getPendingChange().getKind()).isEqualTo(ChangeKind.DELETE);
         assertThat(apiKeys.contains(key.getApiKeyId())).as("not removed until confirmed and dismissed").isTrue();
         assertThat(apiKeys.publishedEvents).hasSize(1);
-        ApiKeyDeleted event = (ApiKeyDeleted) apiKeys.publishedEvents.getFirst();
+        DeleteApiKeyProjectionCommand event = (DeleteApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
         assertThat(event.version()).isEqualTo(2);
         assertThat(event.occurredAt()).isEqualTo(NOW);
         assertThat(event.emittedAt()).isNull();
@@ -51,7 +51,7 @@ class DeleteApiKeyHandlerTest {
     void aProvisioningKeyCannotBeDeleted() {
         ApiKey key = apiKeys.existing(provisioning());
 
-        assertThatThrownBy(() -> delete(USER_ID, key)).isInstanceOf(ApiKeyNotFoundException.class);
+        assertThatThrownBy(() -> delete(USER_ID, key)).isInstanceOf(ApiKeyUpdateFailure.class);
         assertThat(apiKeys.publishedEvents).isEmpty();
     }
 
@@ -76,5 +76,14 @@ class DeleteApiKeyHandlerTest {
                 .isInstanceOf(ApiKeyNotFoundException.class);
         assertThatThrownBy(() -> delete(OTHER_USER_ID, key)).isInstanceOf(ApiKeyNotFoundException.class);
         assertThat(apiKeys.publishedEvents).isEmpty();
+    }
+
+    @Test
+    void exhaustedRetriesBecomeAnUpdateFailure() {
+        ApiKey key = apiKeys.existing(active());
+        handler = new DeleteApiKeyHandler(apiKeys, CLOCK, transactions(alwaysConflicts()));
+
+        assertThatThrownBy(() -> delete(USER_ID, key)).isInstanceOf(ApiKeyUpdateFailure.class);
+        assertThat(apiKeys.saves).isZero();
     }
 }

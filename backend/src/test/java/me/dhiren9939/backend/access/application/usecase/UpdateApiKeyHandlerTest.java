@@ -12,17 +12,11 @@ import me.dhiren9939.backend.access.domain.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.Lifetime;
 import me.dhiren9939.backend.access.domain.PermissionChanges;
 import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.events.ApiKeyUpdated;
+import me.dhiren9939.backend.shared.access.events.domain.UpdateApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.util.UUID;
-import java.util.function.Supplier;
 
 import static me.dhiren9939.backend.access.application.usecase.Fixtures.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,29 +24,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class UpdateApiKeyHandlerTest {
 
-    /** Transaction manager that does nothing: these tests are about the handler's logic, not transactions. */
-    private static final PlatformTransactionManager NO_OP_TRANSACTIONS = new PlatformTransactionManager() {
-        @Override
-        public TransactionStatus getTransaction(TransactionDefinition definition) {
-            return new SimpleTransactionStatus();
-        }
-
-        @Override
-        public void commit(TransactionStatus status) {
-        }
-
-        @Override
-        public void rollback(TransactionStatus status) {
-        }
-    };
-
     private InMemoryApiKeys apiKeys;
     private UpdateApiKeyHandler handler;
 
     @BeforeEach
     void setUp() {
         apiKeys = new InMemoryApiKeys();
-        handler = new UpdateApiKeyHandler(apiKeys, CLOCK, new OptimisticLockRetry(), NO_OP_TRANSACTIONS);
+        handler = new UpdateApiKeyHandler(apiKeys, CLOCK, transactions());
     }
 
     private ApiKeyView update(ApiKey key, String name, Lifetime lifetime, PermissionChanges permissions) {
@@ -69,7 +47,7 @@ class UpdateApiKeyHandlerTest {
         assertThat(view.apiKeyName()).as("confirmed name stays until the change is confirmed").isEqualTo(NAME);
         assertThat(apiKeys.saves).isEqualTo(1);
         assertThat(apiKeys.publishedEvents).hasSize(1);
-        ApiKeyUpdated event = (ApiKeyUpdated) apiKeys.publishedEvents.getFirst();
+        UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
         assertThat(event.version()).isEqualTo(2);
         assertThat(event.apiKeyName()).isEqualTo("new-name");
         assertThat(event.occurredAt()).isEqualTo(NOW);
@@ -82,7 +60,7 @@ class UpdateApiKeyHandlerTest {
 
         update(key, null, null, new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.WRITE)));
 
-        ApiKeyUpdated event = (ApiKeyUpdated) apiKeys.publishedEvents.getFirst();
+        UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
         assertThat(event.permissions()).isEqualTo(Permissions.none().with(Scope.INGESTION, AccessLevel.WRITE));
     }
 
@@ -104,7 +82,7 @@ class UpdateApiKeyHandlerTest {
                 new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.WRITE, Scope.TENANT, AccessLevel.READ, Scope.CHANNEL, AccessLevel.READ_WRITE)));
 
         assertThat(apiKeys.publishedEvents).hasSize(1);
-        ApiKeyUpdated event = (ApiKeyUpdated) apiKeys.publishedEvents.getFirst();
+        UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
         assertThat(event.apiKeyName()).isEqualTo("all-new");
         assertThat(key.desiredState().expiresAt()).isNull();
         assertThat(event.version()).isEqualTo(2);
@@ -137,7 +115,7 @@ class UpdateApiKeyHandlerTest {
     void aProvisioningKeyCannotBeUpdated() {
         ApiKey key = apiKeys.existing(provisioning());
 
-        assertThatThrownBy(() -> update(key, "x", null, null)).isInstanceOf(ApiKeyNotFoundException.class);
+        assertThatThrownBy(() -> update(key, "x", null, null)).isInstanceOf(ApiKeyUpdateFailure.class);
         assertThat(apiKeys.saves).isZero();
     }
 
@@ -173,13 +151,7 @@ class UpdateApiKeyHandlerTest {
 
     @Test
     void exhaustedOptimisticLockRetriesBecomeAnUpdateFailure() {
-        OptimisticLockRetry alwaysConflicts = new OptimisticLockRetry() {
-            @Override
-            public <T> T execute(Supplier<T> operation) {
-                throw new ObjectOptimisticLockingFailureException("conflict", null);
-            }
-        };
-        handler = new UpdateApiKeyHandler(apiKeys, CLOCK, alwaysConflicts, NO_OP_TRANSACTIONS);
+        handler = new UpdateApiKeyHandler(apiKeys, CLOCK, transactions(alwaysConflicts()));
         ApiKey key = apiKeys.existing(active());
 
         assertThatThrownBy(() -> update(key, "x", null, null)).isInstanceOf(ApiKeyUpdateFailure.class);

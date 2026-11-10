@@ -6,6 +6,8 @@ import me.dhiren9939.backend.access.application.port.in.ApiKeyView;
 import me.dhiren9939.backend.access.application.port.in.ConfirmChangeCommand;
 import me.dhiren9939.backend.access.application.port.in.ConfirmChangeUseCase;
 import me.dhiren9939.backend.access.application.port.in.DeleteApiKeyUseCase;
+import me.dhiren9939.backend.access.application.port.in.CancelApiKeyChangeCommand;
+import me.dhiren9939.backend.access.application.port.in.CancelApiKeyChangeUseCase;
 import me.dhiren9939.backend.access.application.port.in.DismissApiKeyCommand;
 import me.dhiren9939.backend.access.application.port.in.DismissApiKeyUseCase;
 import me.dhiren9939.backend.access.application.port.in.GetApiKeyUseCase;
@@ -20,7 +22,7 @@ import me.dhiren9939.backend.access.domain.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.ApiKeyState;
 import me.dhiren9939.backend.access.domain.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.ChangeStatus;
-import me.dhiren9939.backend.access.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
 import me.dhiren9939.backend.access.domain.Lifetime;
 import me.dhiren9939.backend.shared.access.Permissions;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,11 +70,12 @@ class ApiKeyControllerTest {
         };
         DeleteApiKeyUseCase delete = command -> received.add(command);
         DismissApiKeyUseCase dismiss = command -> received.add(command);
+        CancelApiKeyChangeUseCase cancel = command -> received.add(command);
         ConfirmChangeUseCase confirm = command -> received.add(command);
         RejectChangeUseCase reject = command -> received.add(command);
 
         mvc = MockMvcBuilders
-                .standaloneSetup(new ApiKeyController(issue, get, update, delete, dismiss),
+                .standaloneSetup(new ApiKeyController(issue, get, update, delete, dismiss, cancel),
                         new ApiKeyInternalController(confirm, reject))
                 .setControllerAdvice(new ApiKeyExceptionHandler())
                 .build();
@@ -86,7 +89,7 @@ class ApiKeyControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessSecret").value("the-secret"))
                 .andExpect(jsonPath("$.accessId").value("V1_acc"))
-                .andExpect(jsonPath("$.state").value("PROVISIONING"))
+                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
                 .andExpect(jsonPath("$.updateStatus").value("PENDING"));
 
         IssueApiKeyCommand command = (IssueApiKeyCommand) received.getFirst();
@@ -154,7 +157,7 @@ class ApiKeyControllerTest {
         mvc.perform(get("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.apiKeyId").value(KEY_ID.toString()))
-                .andExpect(jsonPath("$.state").value("PROVISIONING"))
+                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
                 .andExpect(jsonPath("$.accessSecret").doesNotExist());
     }
 
@@ -178,6 +181,13 @@ class ApiKeyControllerTest {
 
         assertThat(received).hasSize(2);
         assertThat(received.get(1)).isEqualTo(new DismissApiKeyCommand(USER_ID, KEY_ID));
+    }
+
+    @Test
+    void cancelReturns204AndSendsItsCommand() throws Exception {
+        mvc.perform(post("/api/v1/user/{userId}/apikey/{id}/cancel", USER_ID, KEY_ID)).andExpect(status().isNoContent());
+
+        assertThat(received).containsExactly(new CancelApiKeyChangeCommand(USER_ID, KEY_ID));
     }
 
     @Test

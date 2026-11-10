@@ -2,7 +2,8 @@ package me.dhiren9939.backend.access.application.usecase;
 
 import me.dhiren9939.backend.access.application.port.out.ApiKeys;
 import me.dhiren9939.backend.access.domain.ApiKey;
-import me.dhiren9939.backend.shared.access.events.ApiKeyEvent;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyEvent;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyProjectionCommand;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -17,6 +18,9 @@ import java.util.UUID;
  */
 class InMemoryApiKeys implements ApiKeys {
     private final Map<UUID, ApiKey> store = new LinkedHashMap<>();
+    /** Facts about how changes ended (confirmed, rejected). */
+    final List<ApiKeyEvent> changeEvents = new ArrayList<>();
+    /** The projection commands only, which is what most tests are about. */
     final List<ApiKeyEvent> publishedEvents = new ArrayList<>();
     int saves;
     int deletes;
@@ -56,14 +60,23 @@ class InMemoryApiKeys implements ApiKeys {
     public ApiKey save(ApiKey key) {
         saves++;
         store.put(key.getApiKeyId(), key);
-        publishedEvents.addAll(key.pullDomainEvents());
+        record(key);
         return key;
+    }
+
+    private void record(ApiKey key) {
+        for (ApiKeyEvent event : key.pullDomainEvents()) {
+            if (event instanceof ApiKeyProjectionCommand)
+                publishedEvents.add(event);
+            else
+                changeEvents.add(event);
+        }
     }
 
     @Override
     public void delete(ApiKey key) {
         deletes++;
         store.remove(key.getApiKeyId());
-        publishedEvents.addAll(key.pullDomainEvents());
+        record(key);
     }
 }

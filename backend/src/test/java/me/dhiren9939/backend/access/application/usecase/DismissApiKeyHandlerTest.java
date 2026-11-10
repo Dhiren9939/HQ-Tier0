@@ -5,7 +5,7 @@ import me.dhiren9939.backend.access.domain.ApiKey;
 import me.dhiren9939.backend.access.domain.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.ApiKeyState;
 import me.dhiren9939.backend.access.domain.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.shared.access.events.ApiKeyDeleted;
+import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +23,7 @@ class DismissApiKeyHandlerTest {
     @BeforeEach
     void setUp() {
         apiKeys = new InMemoryApiKeys();
-        handler = new DismissApiKeyHandler(apiKeys, CLOCK);
+        handler = new DismissApiKeyHandler(apiKeys, transactions());
     }
 
     private void dismiss(UUID userId, ApiKey key) {
@@ -31,7 +31,7 @@ class DismissApiKeyHandlerTest {
     }
 
     @Test
-    void dismissingAFailedChangeClearsItAndKeepsTheKeyWithoutAnEvent() {
+    void dismissingAFailedChangeClearsItAndEmitsNothing() {
         ApiKey key = apiKeys.existing(changeFailed());
 
         dismiss(USER_ID, key);
@@ -43,17 +43,14 @@ class DismissApiKeyHandlerTest {
     }
 
     @Test
-    void dismissingAFailedCreationRemovesTheKeyAndEmitsADeleteAtTheNextRevision() {
+    void dismissingAFailedCreationRemovesTheKeyAndEmitsNothing() {
         ApiKey key = apiKeys.existing(provisioningFailed());
 
         dismiss(USER_ID, key);
 
         assertThat(apiKeys.contains(key.getApiKeyId())).isFalse();
         assertThat(apiKeys.deletes).isEqualTo(1);
-        assertThat(apiKeys.publishedEvents).hasSize(1);
-        ApiKeyDeleted event = (ApiKeyDeleted) apiKeys.publishedEvents.getFirst();
-        assertThat(event.version()).isEqualTo(2);
-        assertThat(event.apiKeyId()).isEqualTo(key.getApiKeyId());
+        assertThat(apiKeys.publishedEvents).as("the delete went out when the creation was rejected").isEmpty();
     }
 
     @Test
@@ -89,5 +86,14 @@ class DismissApiKeyHandlerTest {
                 .isInstanceOf(ApiKeyNotFoundException.class);
         assertThatThrownBy(() -> dismiss(OTHER_USER_ID, key)).isInstanceOf(ApiKeyNotFoundException.class);
         assertThat(apiKeys.contains(key.getApiKeyId())).isTrue();
+    }
+
+    @Test
+    void exhaustedRetriesBecomeAnUpdateFailure() {
+        ApiKey key = apiKeys.existing(changeFailed());
+        handler = new DismissApiKeyHandler(apiKeys, transactions(alwaysConflicts()));
+
+        assertThatThrownBy(() -> handler.handle(new DismissApiKeyCommand(USER_ID, key.getApiKeyId()))).isInstanceOf(ApiKeyUpdateFailure.class);
+        assertThat(apiKeys.saves).isZero();
     }
 }

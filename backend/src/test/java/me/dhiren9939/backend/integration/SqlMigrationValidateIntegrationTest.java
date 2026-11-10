@@ -137,8 +137,8 @@ class SqlMigrationValidateIntegrationTest {
         confirmChange.handle(new ConfirmChangeCommand(id, 3));
         dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
 
-        assertThat(jdbc.queryForList("select event_type from access.outbox order by change_version", String.class))
-                .containsExactly("apiKey.created", "apiKey.updated", "apiKey.deleted");
+        assertThat(jdbc.queryForList("select event_type from access.outbox where event_type like 'apiKey.projection.%' order by change_version", String.class))
+                .containsExactly("apiKey.projection.create", "apiKey.projection.update", "apiKey.projection.delete");
         assertThat(jdbc.queryForObject("select count(*) from access.api_keys", Long.class)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from access.pending_changes", Long.class)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from access.api_key_permissions", Long.class)).isZero();

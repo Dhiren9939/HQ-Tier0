@@ -3,9 +3,15 @@ package me.dhiren9939.backend.access.application.usecase;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Scope;
 import me.dhiren9939.backend.access.domain.ApiKey;
-import me.dhiren9939.backend.access.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
 import me.dhiren9939.backend.access.domain.IssuedCredential;
 import me.dhiren9939.backend.shared.access.Permissions;
+
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -40,7 +46,7 @@ final class Fixtures {
 
     static ApiKey provisioningFailed() {
         ApiKey key = provisioning();
-        key.reject(1, FailureReason.REJECTED);
+        key.reject(1, FailureReason.REJECTED, NOW);
         return key;
     }
 
@@ -52,7 +58,7 @@ final class Fixtures {
 
     static ApiKey changeFailed() {
         ApiKey key = changePending();
-        key.reject(2, FailureReason.REJECTED);
+        key.reject(2, FailureReason.REJECTED, NOW);
         return key;
     }
 
@@ -60,5 +66,37 @@ final class Fixtures {
         ApiKey key = changePending();
         key.confirm(2, NOW);
         return key;
+    }
+
+    /** Transactions that do nothing: handler tests are about the logic, not the database. */
+    static RetriedTransaction transactions() {
+        return transactions(new OptimisticLockRetry());
+    }
+
+    static RetriedTransaction transactions(OptimisticLockRetry retry) {
+        return new RetriedTransaction(retry, new PlatformTransactionManager() {
+            @Override
+            public TransactionStatus getTransaction(TransactionDefinition definition) {
+                return new SimpleTransactionStatus();
+            }
+
+            @Override
+            public void commit(TransactionStatus status) {
+            }
+
+            @Override
+            public void rollback(TransactionStatus status) {
+            }
+        });
+    }
+
+    /** A retry that always loses the race, as when every attempt meets a concurrent writer. */
+    static OptimisticLockRetry alwaysConflicts() {
+        return new OptimisticLockRetry() {
+            @Override
+            public <T> T execute(java.util.function.Supplier<T> operation) {
+                throw new ObjectOptimisticLockingFailureException("conflict", null);
+            }
+        };
     }
 }

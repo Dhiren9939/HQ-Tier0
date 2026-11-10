@@ -6,7 +6,7 @@ import me.dhiren9939.backend.access.domain.ApiKey;
 import me.dhiren9939.backend.access.domain.ApiKeyState;
 import me.dhiren9939.backend.access.domain.ChangeStatus;
 import me.dhiren9939.backend.access.domain.Lifetime;
-import me.dhiren9939.backend.shared.access.events.ApiKeyCreated;
+import me.dhiren9939.backend.shared.access.events.domain.CreateApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -49,7 +49,7 @@ class IssueApiKeyHandlerTest {
         issue(Lifetime.ONE_MONTH);
 
         assertThat(apiKeys.publishedEvents).hasSize(1);
-        ApiKeyCreated event = (ApiKeyCreated) apiKeys.publishedEvents.getFirst();
+        CreateApiKeyProjectionCommand event = (CreateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
         assertThat(event.version()).isEqualTo(1);
         assertThat(event.occurredAt()).isEqualTo(NOW);
         assertThat(event.emittedAt()).isNull();

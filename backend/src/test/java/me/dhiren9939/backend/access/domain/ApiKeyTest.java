@@ -1,13 +1,18 @@
 package me.dhiren9939.backend.access.domain;
 
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyEvent;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyChangeRejected;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.ChangeKind;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Scope;
 import java.util.Map;
 import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.events.ApiKeyCreated;
-import me.dhiren9939.backend.shared.access.events.ApiKeyDeleted;
-import me.dhiren9939.backend.shared.access.events.ApiKeyEvent;
-import me.dhiren9939.backend.shared.access.events.ApiKeyUpdated;
+import me.dhiren9939.backend.shared.access.events.domain.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.domain.UpdateApiKeyProjectionCommand;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -34,6 +39,12 @@ class ApiKeyTest {
     private static final Permissions NO_PERMISSIONS = Permissions.none();
     private static final IssuedCredential CREDENTIAL = new IssuedCredential("V1_acc", "secret_raw", "hashed_secret");
 
+    /** Only the projection commands among the events, in order. */
+    private static List<ApiKeyProjectionCommand> commands(List<ApiKeyEvent> events) {
+        return events.stream().filter(ApiKeyProjectionCommand.class::isInstance)
+                .map(ApiKeyProjectionCommand.class::cast).toList();
+    }
+
     private static ApiKey provisioning() {
         return ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, NOW, ONE_MONTH_FROM_NOW);
     }
@@ -52,7 +63,7 @@ class ApiKeyTest {
 
     private static ApiKey withFailedUpdate() {
         ApiKey key = withPendingUpdate();
-        key.reject(2, FailureReason.REJECTED);
+        key.reject(2, FailureReason.REJECTED, NOW);
         return key;
     }
 
@@ -70,7 +81,7 @@ class ApiKeyTest {
 
     private static ApiKey provisioningFailed() {
         ApiKey key = provisioning();
-        key.reject(1, FailureReason.CONFIRM_TIMEOUT);
+        key.reject(1, FailureReason.CONFIRM_TIMEOUT, NOW);
         return key;
     }
 
@@ -334,12 +345,13 @@ class ApiKeyTest {
         @DisplayName("no-op when the permission changes are empty")
         void noOpEmptyPermissionChanges() {
             ApiKey key = active();
+            key.pullDomainEvents();
 
             assertThat(key.requestUpdate(permissions(PermissionChanges.none()), NOW)).isFalse();
 
             assertThat(key.getRevision()).isEqualTo(1);
             assertThat(key.getPendingChange()).isNull();
-            assertThat(key.pullDomainEvents()).hasSize(1); // only the creation event from issue()
+            assertThat(key.pullDomainEvents()).isEmpty();
         }
 
         @Test
@@ -403,7 +415,7 @@ class ApiKeyTest {
             ApiKey key = provisioning();
 
             assertThatThrownBy(() -> key.requestUpdate(name("x"), NOW))
-                    .isInstanceOf(ApiKeyNotFoundException.class)
+                    .isInstanceOf(ApiKeyUpdateFailure.class)
                     .hasMessage("Can't update an API key with pending creation");
             assertThat(key.getRevision()).isEqualTo(1);
         }
@@ -479,7 +491,7 @@ class ApiKeyTest {
             ApiKey key = provisioning();
 
             assertThatThrownBy(() -> key.requestDeletion(NOW))
-                    .isInstanceOf(ApiKeyNotFoundException.class)
+                    .isInstanceOf(ApiKeyUpdateFailure.class)
                     .hasMessage("Can't delete an API key with pending creation");
         }
 
@@ -600,7 +612,7 @@ class ApiKeyTest {
         void recordsReason(FailureReason reason) {
             ApiKey key = withPendingUpdate();
 
-            key.reject(2, reason);
+            key.reject(2, reason, NOW);
 
             assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
             assertThat(key.getPendingChange().getStatus()).isEqualTo(ChangeStatus.FAILED);
@@ -611,7 +623,7 @@ class ApiKeyTest {
         void failedCreationIsProvisioningFailed() {
             ApiKey key = provisioning();
 
-            key.reject(1, FailureReason.OUTBOX_PUBLISH_FAILURE);
+            key.reject(1, FailureReason.OUTBOX_PUBLISH_FAILURE, NOW);
 
             assertThat(key.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
             assertThat(key.canAuthenticate(NOW)).isFalse();
@@ -621,7 +633,7 @@ class ApiKeyTest {
         void refusesStaleRevision() {
             ApiKey key = withPendingUpdate();
 
-            assertThatThrownBy(() -> key.reject(1, FailureReason.REJECTED)).isInstanceOf(ApiKeyUpdateFailure.class);
+            assertThatThrownBy(() -> key.reject(1, FailureReason.REJECTED, NOW)).isInstanceOf(ApiKeyUpdateFailure.class);
             assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
         }
 
@@ -629,14 +641,14 @@ class ApiKeyTest {
         void refusesWhenNothingIsPending() {
             ApiKey key = active();
 
-            assertThatThrownBy(() -> key.reject(1, FailureReason.REJECTED)).isInstanceOf(ApiKeyUpdateFailure.class);
+            assertThatThrownBy(() -> key.reject(1, FailureReason.REJECTED, NOW)).isInstanceOf(ApiKeyUpdateFailure.class);
         }
 
         @Test
         void refusesAnAlreadyFailedChange() {
             ApiKey key = withFailedUpdate();
 
-            assertThatThrownBy(() -> key.reject(2, FailureReason.CONFIRM_TIMEOUT))
+            assertThatThrownBy(() -> key.reject(2, FailureReason.CONFIRM_TIMEOUT, NOW))
                     .isInstanceOf(ApiKeyUpdateFailure.class);
             assertThat(key.getPendingChange().getFailureReason()).isEqualTo(FailureReason.REJECTED);
         }
@@ -645,7 +657,7 @@ class ApiKeyTest {
         void requiresAReason() {
             ApiKey key = withPendingUpdate();
 
-            assertThatThrownBy(() -> key.reject(2, null)).isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(() -> key.reject(2, null, NOW)).isInstanceOf(NullPointerException.class);
         }
     }
 
@@ -658,7 +670,7 @@ class ApiKeyTest {
         void failedUpdate() {
             ApiKey key = withFailedUpdate();
 
-            DismissResult result = key.dismiss(LATER);
+            DismissResult result = key.dismiss();
 
             assertThat(result).isEqualTo(DismissResult.CLEARED);
             assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
@@ -670,9 +682,9 @@ class ApiKeyTest {
         @DisplayName("a failed delete is cleared and the key is active again")
         void failedDelete() {
             ApiKey key = withPendingDelete();
-            key.reject(2, FailureReason.REJECTED);
+            key.reject(2, FailureReason.REJECTED, NOW);
 
-            assertThat(key.dismiss(LATER)).isEqualTo(DismissResult.CLEARED);
+            assertThat(key.dismiss()).isEqualTo(DismissResult.CLEARED);
             assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
             assertThat(key.canAuthenticate(NOW)).isTrue();
         }
@@ -681,19 +693,19 @@ class ApiKeyTest {
         @DisplayName("after dismissing a failure, the next change gets a fresh revision")
         void changeAfterDismiss() {
             ApiKey key = withFailedUpdate();
-            key.dismiss(LATER);
+            key.dismiss();
 
             assertThat(key.requestUpdate(name("again"), NOW)).isTrue();
 
-            assertThat(key.getRevision()).isEqualTo(3);
+            assertThat(key.getRevision()).as("revision 3 went to the compensating update").isEqualTo(4);
         }
 
         @Test
-        @DisplayName("a failed creation is removed and needs a delete event at the next revision")
+        @DisplayName("a failed creation is removed (its delete command went out when it failed)")
         void failedCreation() {
             ApiKey key = provisioningFailed();
 
-            DismissResult result = key.dismiss(LATER);
+            DismissResult result = key.dismiss();
 
             assertThat(result).isEqualTo(DismissResult.REMOVED);
             assertThat(key.getRevision()).isEqualTo(2);
@@ -705,7 +717,7 @@ class ApiKeyTest {
         void tombstone() {
             ApiKey key = deleted();
 
-            DismissResult result = key.dismiss(LATER);
+            DismissResult result = key.dismiss();
 
             assertThat(result).isEqualTo(DismissResult.REMOVED);
             assertThat(key.getRevision()).isEqualTo(2);
@@ -715,21 +727,21 @@ class ApiKeyTest {
         void nothingToDismissOnActiveKey() {
             ApiKey key = active();
 
-            assertThatThrownBy(() -> key.dismiss(LATER)).isInstanceOf(ApiKeyUpdateFailure.class);
+            assertThatThrownBy(() -> key.dismiss()).isInstanceOf(ApiKeyUpdateFailure.class);
         }
 
         @Test
         void nothingToDismissWhileProvisioning() {
             ApiKey key = provisioning();
 
-            assertThatThrownBy(() -> key.dismiss(LATER)).isInstanceOf(ApiKeyUpdateFailure.class);
+            assertThatThrownBy(() -> key.dismiss()).isInstanceOf(ApiKeyUpdateFailure.class);
         }
 
         @Test
         void nothingToDismissWhileChangePending() {
             ApiKey key = withPendingUpdate();
 
-            assertThatThrownBy(() -> key.dismiss(LATER)).isInstanceOf(ApiKeyUpdateFailure.class);
+            assertThatThrownBy(() -> key.dismiss()).isInstanceOf(ApiKeyUpdateFailure.class);
             assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
         }
     }
@@ -745,15 +757,15 @@ class ApiKeyTest {
         }
 
         @Test
-        @DisplayName("issuing registers ApiKeyCreated at revision 1 with the secret hash, occurredAt = now and emittedAt null")
+        @DisplayName("issuing registers CreateApiKeyProjectionCommand at revision 1 with the secret hash, occurredAt = now and emittedAt null")
         void issueRegistersCreated() {
             ApiKey key = provisioning();
 
             List<ApiKeyEvent> events = key.pullDomainEvents();
 
             assertThat(events).hasSize(1);
-            ApiKeyCreated created = (ApiKeyCreated) events.getFirst();
-            assertThat(created.eventType()).isEqualTo("apiKey.created");
+            CreateApiKeyProjectionCommand created = (CreateApiKeyProjectionCommand) events.getFirst();
+            assertThat(created.eventType()).isEqualTo("apiKey.projection.create");
             assertThat(created.apiKeyId()).isEqualTo(key.getApiKeyId());
             assertThat(created.version()).isEqualTo(1);
             assertThat(created.occurredAt()).isEqualTo(NOW);
@@ -776,15 +788,15 @@ class ApiKeyTest {
         }
 
         @Test
-        @DisplayName("an update registers ApiKeyUpdated with the pending state at the new revision")
+        @DisplayName("an update registers UpdateApiKeyProjectionCommand with the pending state at the new revision")
         void updateRegistersUpdated() {
             ApiKey key = activeWithoutEvents();
 
             key.requestUpdate(new ApiKeyChanges("renamed", Lifetime.NEVER,
                     new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.WRITE))), LATER);
 
-            ApiKeyUpdated updated = (ApiKeyUpdated) key.pullDomainEvents().getFirst();
-            assertThat(updated.eventType()).isEqualTo("apiKey.updated");
+            UpdateApiKeyProjectionCommand updated = (UpdateApiKeyProjectionCommand) commands(key.pullDomainEvents()).getFirst();
+            assertThat(updated.eventType()).isEqualTo("apiKey.projection.update");
             assertThat(updated.version()).isEqualTo(2);
             assertThat(updated.occurredAt()).isEqualTo(LATER);
             assertThat(updated.emittedAt()).isNull();
@@ -815,14 +827,14 @@ class ApiKeyTest {
         }
 
         @Test
-        @DisplayName("requesting deletion registers ApiKeyDeleted at the new revision")
+        @DisplayName("requesting deletion registers DeleteApiKeyProjectionCommand at the new revision")
         void deletionRegistersDeleted() {
             ApiKey key = activeWithoutEvents();
 
             key.requestDeletion(LATER);
 
-            ApiKeyDeleted deleted = (ApiKeyDeleted) key.pullDomainEvents().getFirst();
-            assertThat(deleted.eventType()).isEqualTo("apiKey.deleted");
+            DeleteApiKeyProjectionCommand deleted = (DeleteApiKeyProjectionCommand) commands(key.pullDomainEvents()).getFirst();
+            assertThat(deleted.eventType()).isEqualTo("apiKey.projection.delete");
             assertThat(deleted.version()).isEqualTo(2);
             assertThat(deleted.occurredAt()).isEqualTo(LATER);
             assertThat(deleted.emittedAt()).isNull();
@@ -831,14 +843,14 @@ class ApiKeyTest {
         }
 
         @Test
-        @DisplayName("dismissing a failed creation registers ApiKeyDeleted at the next revision")
-        void dismissFailedCreationRegistersDeleted() {
-            ApiKey key = provisioningFailed();
+        @DisplayName("rejecting a creation registers a delete at the next revision, at once")
+        void rejectedCreationRegistersDeleted() {
+            ApiKey key = provisioning();
             key.pullDomainEvents();
 
-            key.dismiss(LATER);
+            key.reject(1, FailureReason.REJECTED, LATER);
 
-            ApiKeyDeleted deleted = (ApiKeyDeleted) key.pullDomainEvents().getFirst();
+            DeleteApiKeyProjectionCommand deleted = (DeleteApiKeyProjectionCommand) commands(key.pullDomainEvents()).getFirst();
             assertThat(deleted.version()).isEqualTo(2);
             assertThat(deleted.occurredAt()).isEqualTo(LATER);
             assertThat(deleted.emittedAt()).isNull();
@@ -846,29 +858,145 @@ class ApiKeyTest {
         }
 
         @Test
-        @DisplayName("dismissing a deleted tombstone or a failed change registers nothing")
-        void otherDismissalsRegisterNothing() {
-            ApiKey tombstone = deleted();
-            tombstone.pullDomainEvents();
-            ApiKey failedUpdate = withFailedUpdate();
-            failedUpdate.pullDomainEvents();
+        @DisplayName("rejecting an update registers an update restating the confirmed state at the next revision")
+        void rejectedUpdateRegistersUpdateOfConfirmedState() {
+            ApiKey key = withPendingUpdate();
+            key.pullDomainEvents();
 
-            tombstone.dismiss(LATER);
-            failedUpdate.dismiss(LATER);
+            key.reject(2, FailureReason.CONFIRM_TIMEOUT, LATER);
 
-            assertThat(tombstone.pullDomainEvents()).isEmpty();
-            assertThat(failedUpdate.pullDomainEvents()).isEmpty();
+            List<ApiKeyProjectionCommand> events = commands(key.pullDomainEvents());
+            assertThat(events).hasSize(1);
+            UpdateApiKeyProjectionCommand update = (UpdateApiKeyProjectionCommand) events.getFirst();
+            assertThat(update.version()).isEqualTo(3);
+            assertThat(update.apiKeyName()).as("the confirmed name, not the rejected one").isEqualTo(NAME);
+            assertThat(update.occurredAt()).isEqualTo(LATER);
+            assertThat(key.getRevision()).isEqualTo(3);
         }
 
         @Test
-        @DisplayName("confirming a change registers nothing")
-        void confirmRegistersNothing() {
+        @DisplayName("rejecting a delete registers a create that restores the key at the next revision")
+        void rejectedDeleteRegistersCreate() {
+            ApiKey key = withPendingDelete();
+            key.pullDomainEvents();
+
+            key.reject(2, FailureReason.CONFIRM_TIMEOUT, LATER);
+
+            List<ApiKeyProjectionCommand> events = commands(key.pullDomainEvents());
+            assertThat(events).hasSize(1);
+            CreateApiKeyProjectionCommand create = (CreateApiKeyProjectionCommand) events.getFirst();
+            assertThat(create.version()).isEqualTo(3);
+            assertThat(create.apiKeyName()).isEqualTo(NAME);
+            assertThat(create.accessSecretHash()).isNotNull();
+            assertThat(create.occurredAt()).isEqualTo(LATER);
+        }
+
+        @Test
+        @DisplayName("cancelling a pending update fails it as CANCELLED_BY_USER and registers the compensating update")
+        void cancelledUpdate() {
+            ApiKey key = withPendingUpdate();
+            key.pullDomainEvents();
+
+            key.cancelPendingChange(LATER);
+
+            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
+            assertThat(key.getPendingChange().getFailureReason()).isEqualTo(FailureReason.CANCELLED_BY_USER);
+            UpdateApiKeyProjectionCommand update = (UpdateApiKeyProjectionCommand) commands(key.pullDomainEvents()).getFirst();
+            assertThat(update.version()).isEqualTo(3);
+            assertThat(update.apiKeyName()).isEqualTo(NAME);
+        }
+
+        @Test
+        @DisplayName("cancelling a pending delete registers a restoring create; cancelling a creation registers a delete")
+        void cancelledDeleteAndCreation() {
+            ApiKey pendingDelete = withPendingDelete();
+            pendingDelete.pullDomainEvents();
+            ApiKey provisioning = provisioning();
+            provisioning.pullDomainEvents();
+
+            pendingDelete.cancelPendingChange(LATER);
+            provisioning.cancelPendingChange(LATER);
+
+            assertThat(commands(pendingDelete.pullDomainEvents()).getFirst()).isInstanceOf(CreateApiKeyProjectionCommand.class);
+            assertThat(commands(provisioning.pullDomainEvents()).getFirst()).isInstanceOf(DeleteApiKeyProjectionCommand.class);
+            assertThat(provisioning.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
+        }
+
+        @Test
+        @DisplayName("nothing to cancel: no pending change, or the change already failed")
+        void nothingToCancel() {
+            assertThatThrownBy(() -> active().cancelPendingChange(LATER)).isInstanceOf(ApiKeyUpdateFailure.class);
+            assertThatThrownBy(() -> withFailedUpdate().cancelPendingChange(LATER)).isInstanceOf(ApiKeyUpdateFailure.class);
+            assertThatThrownBy(() -> deleted().cancelPendingChange(LATER)).isInstanceOf(ApiKeyUpdateFailure.class);
+        }
+
+        @Test
+        @DisplayName("dismissing registers nothing: the compensating commands went out when the change failed")
+        void dismissalsRegisterNothing() {
+            ApiKey tombstone = deleted();
+            ApiKey failedUpdate = withFailedUpdate();
+            ApiKey failedCreation = provisioningFailed();
+            tombstone.pullDomainEvents();
+            failedUpdate.pullDomainEvents();
+            failedCreation.pullDomainEvents();
+
+            tombstone.dismiss();
+            failedUpdate.dismiss();
+            failedCreation.dismiss();
+
+            assertThat(tombstone.pullDomainEvents()).isEmpty();
+            assertThat(failedUpdate.pullDomainEvents()).isEmpty();
+            assertThat(failedCreation.pullDomainEvents()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("confirming a change registers only the ApiKeyChangeConfirmed fact, no projection command")
+        void confirmRegistersOnlyTheFact() {
             ApiKey key = provisioning();
             key.pullDomainEvents();
 
             key.confirm(1, LATER);
 
-            assertThat(key.pullDomainEvents()).isEmpty();
+            List<ApiKeyEvent> events = key.pullDomainEvents();
+            assertThat(events).hasSize(1);
+            ApiKeyChangeConfirmed confirmed = (ApiKeyChangeConfirmed) events.getFirst();
+            assertThat(confirmed.eventType()).isEqualTo("apiKey.change.confirmed");
+            assertThat(confirmed.version()).isEqualTo(1);
+            assertThat(confirmed.changeKind()).isEqualTo(ChangeKind.CREATE);
+            assertThat(confirmed.apiKeyId()).isEqualTo(key.getApiKeyId());
+            assertThat(confirmed.occurredAt()).isEqualTo(LATER);
+            assertThat(confirmed.emittedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("a rejected change registers ApiKeyChangeRejected with its kind and reason, then the compensating command")
+        void rejectRegistersTheFactThenTheCompensation() {
+            ApiKey key = withPendingDelete();
+            key.pullDomainEvents();
+
+            key.reject(2, FailureReason.CONFIRM_TIMEOUT, LATER);
+
+            List<ApiKeyEvent> events = key.pullDomainEvents();
+            assertThat(events).hasSize(2);
+            ApiKeyChangeRejected rejected = (ApiKeyChangeRejected) events.get(0);
+            assertThat(rejected.eventType()).isEqualTo("apiKey.change.rejected");
+            assertThat(rejected.version()).isEqualTo(2);
+            assertThat(rejected.changeKind()).isEqualTo(ChangeKind.DELETE);
+            assertThat(rejected.failureReason()).isEqualTo(FailureReason.CONFIRM_TIMEOUT);
+            assertThat(events.get(1)).isInstanceOf(CreateApiKeyProjectionCommand.class);
+        }
+
+        @Test
+        @DisplayName("cancelling registers ApiKeyChangeRejected with CANCELLED_BY_USER")
+        void cancelRegistersTheRejectedFact() {
+            ApiKey key = withPendingUpdate();
+            key.pullDomainEvents();
+
+            key.cancelPendingChange(LATER);
+
+            ApiKeyChangeRejected rejected = (ApiKeyChangeRejected) key.pullDomainEvents().getFirst();
+            assertThat(rejected.failureReason()).isEqualTo(FailureReason.CANCELLED_BY_USER);
+            assertThat(rejected.changeKind()).isEqualTo(ChangeKind.UPDATE);
         }
     }
 

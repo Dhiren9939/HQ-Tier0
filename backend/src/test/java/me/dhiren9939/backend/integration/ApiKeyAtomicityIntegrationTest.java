@@ -6,7 +6,7 @@ import me.dhiren9939.backend.access.application.port.in.DismissApiKeyCommand;
 import me.dhiren9939.backend.access.application.port.in.RejectChangeCommand;
 import me.dhiren9939.backend.access.application.port.in.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.domain.ApiKeyState;
-import me.dhiren9939.backend.access.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
 import me.dhiren9939.backend.access.domain.Lifetime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,17 +95,17 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("dismissing a failed creation: a failing outbox write keeps the key and its failure")
-    void dismissFailedCreationRollsBack() {
-        UUID id = jdbcFailedCreationNamedBoom();
+    @DisplayName("rejecting a creation: a failing outbox write keeps the change pending")
+    void rejectCreationRollsBack() {
+        UUID id = jdbcIssueNamedBoom();
         int events = outbox().size();
 
-        assertThatThrownBy(() -> dismissApiKey.handle(new DismissApiKeyCommand(owner, id)))
+        assertThatThrownBy(() -> rejectChange.handle(new RejectChangeCommand(id, 1, FailureReason.REJECTED)))
                 .isInstanceOf(RuntimeException.class);
 
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
-        assertThat(count("access.api_keys")).isEqualTo(1);
-        assertThat(count("access.pending_changes")).isEqualTo(1);
+        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.PROVISIONING);
+        assertThat(jdbc.queryForObject("select status from access.pending_changes", String.class)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(1);
         assertThat(outbox()).hasSize(events);
     }
 
@@ -119,12 +119,10 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
         }
     }
 
-    private UUID jdbcFailedCreationNamedBoom() {
+    private UUID jdbcIssueNamedBoom() {
         jdbc.execute("alter table access.outbox disable trigger refuse_boom");
         try {
-            UUID id = issue(owner, "boom", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
-            rejectChange.handle(new RejectChangeCommand(id, 1, FailureReason.REJECTED));
-            return id;
+            return issue(owner, "boom", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
         } finally {
             jdbc.execute("alter table access.outbox enable trigger refuse_boom");
         }

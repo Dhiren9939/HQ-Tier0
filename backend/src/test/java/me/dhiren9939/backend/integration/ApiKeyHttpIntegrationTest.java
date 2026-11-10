@@ -53,7 +53,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessSecret").isNotEmpty())
                 .andExpect(jsonPath("$.accessId").value(org.hamcrest.Matchers.startsWith("V1_")))
-                .andExpect(jsonPath("$.state").value("PROVISIONING"))
+                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
                 .andExpect(jsonPath("$.updateStatus").value("PENDING"))
                 .andExpect(jsonPath("$.permissions.INGESTION").value("WRITE"))
                 .andExpect(jsonPath("$.permissions.TENANT").value("NONE"))
@@ -65,18 +65,18 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
 
         send(get(key)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessSecret").doesNotExist())
-                .andExpect(jsonPath("$.state").value("PROVISIONING"))
+                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
         send(post(internal + "1/confirm")).andExpect(status().isNoContent());
         send(get(key)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.state").value("ACTIVE"))
+                .andExpect(jsonPath("$.updateStatus").doesNotExist())
                 .andExpect(jsonPath("$.updateStatus").doesNotExist());
 
         json(patch(key), """
                 {"name":"renamed","permissions":{"TENANT":"READ"}}""")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.state").value("CHANGE_PENDING"))
+                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
         json(patch(key), "{\"name\":\"again\"}").andExpect(status().isConflict());
@@ -84,29 +84,29 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         send(delete(key)).andExpect(status().isConflict());
 
         json(post(internal + "2/reject"), "{\"reason\":\"CONFIRM_TIMEOUT\"}").andExpect(status().isNoContent());
-        send(get(key)).andExpect(jsonPath("$.state").value("CHANGE_FAILED"))
+        send(get(key)).andExpect(jsonPath("$.updateStatus").value("FAILED"))
                 .andExpect(jsonPath("$.updateStatus").value("FAILED"));
         assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
                 .isEqualTo("CONFIRM_TIMEOUT");
 
         send(post(key + "/dismiss")).andExpect(status().isNoContent());
-        send(get(key)).andExpect(jsonPath("$.state").value("ACTIVE"))
+        send(get(key)).andExpect(jsonPath("$.updateStatus").doesNotExist())
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
         json(patch(key), "{\"name\":\"renamed\",\"expiry\":\"ONE_MONTH\"}").andExpect(status().isOk());
-        send(post(internal + "3/confirm")).andExpect(status().isNoContent());
+        send(post(internal + "4/confirm")).andExpect(status().isNoContent());
         send(get(key)).andExpect(jsonPath("$.apiKeyName").value("renamed"))
-                .andExpect(jsonPath("$.state").value("ACTIVE"));
+                .andExpect(jsonPath("$.updateStatus").doesNotExist());
 
         send(delete(key)).andExpect(status().isNoContent());
-        send(post(internal + "4/reject")).andExpect(status().isNoContent()); // body omitted -> REJECTED
+        send(post(internal + "5/reject")).andExpect(status().isNoContent()); // body omitted -> REJECTED
         assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
                 .isEqualTo("REJECTED");
         send(post(key + "/dismiss")).andExpect(status().isNoContent());
 
         send(delete(key)).andExpect(status().isNoContent());
-        send(post(internal + "5/confirm")).andExpect(status().isNoContent());
-        send(get(key)).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("DELETED"));
+        send(post(internal + "7/confirm")).andExpect(status().isNoContent());
+        send(get(key)).andExpect(status().isOk()).andExpect(jsonPath("$.updateStatus").doesNotExist());
         json(patch(key), "{\"name\":\"zombie\"}").andExpect(status().isConflict());
 
         int events = outbox().size();
@@ -114,7 +114,8 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         send(get(key)).andExpect(status().isNotFound());
         assertThat(outbox()).hasSize(events);
         assertThat(outbox()).extracting(OutboxRow::eventType).containsExactly(
-                "apiKey.created", "apiKey.updated", "apiKey.updated", "apiKey.deleted", "apiKey.deleted");
+                "apiKey.projection.create", "apiKey.projection.update", "apiKey.projection.update", "apiKey.projection.update",
+                "apiKey.projection.delete", "apiKey.projection.create", "apiKey.projection.delete");
     }
 
     @Test
@@ -137,9 +138,9 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         UUID id = create("{\"name\":\"k\",\"expiry\":\"NEVER\"}");
         String key = keys() + "/" + id;
 
-        // a provisioning key is reported as not found for changes (the owner has nothing to change yet)
-        json(patch(key), "{\"name\":\"x\"}").andExpect(status().isNotFound());
-        send(delete(key)).andExpect(status().isNotFound());
+        // a key whose creation is still pending refuses changes with a conflict, like any other pending change
+        json(patch(key), "{\"name\":\"x\"}").andExpect(status().isConflict());
+        send(delete(key)).andExpect(status().isConflict());
         send(post(key + "/dismiss")).andExpect(status().isConflict());
     }
 
@@ -163,7 +164,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         json(patch(keys() + "/" + id), "{\"name\":\"" + "x".repeat(257) + "\"}").andExpect(status().isBadRequest());
         json(post(keys()), "{\"name\":\"" + "x".repeat(257) + "\",\"expiry\":\"NEVER\"}")
                 .andExpect(status().isBadRequest());
-        assertThat(count("access.outbox")).as("rejected requests write no events").isEqualTo(1);
+        assertThat(count("access.outbox where event_type like 'apiKey.projection.%'")).as("rejected requests write no events").isEqualTo(1);
     }
 
     @Test

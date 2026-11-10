@@ -3,6 +3,7 @@ package me.dhiren9939.backend.integration;
 import me.dhiren9939.backend.access.application.port.in.ApiKeyView;
 import me.dhiren9939.backend.access.application.port.in.ConfirmChangeCommand;
 import me.dhiren9939.backend.access.application.port.in.DeleteApiKeyCommand;
+import me.dhiren9939.backend.access.application.port.in.CancelApiKeyChangeCommand;
 import me.dhiren9939.backend.access.application.port.in.DismissApiKeyCommand;
 import me.dhiren9939.backend.access.application.port.in.IssuedApiKeyResult;
 import me.dhiren9939.backend.access.application.port.in.RejectChangeCommand;
@@ -13,7 +14,7 @@ import me.dhiren9939.backend.access.domain.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.ApiKeyState;
 import me.dhiren9939.backend.access.domain.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.ChangeStatus;
-import me.dhiren9939.backend.access.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
 import me.dhiren9939.backend.access.domain.Lifetime;
 import me.dhiren9939.backend.access.domain.PermissionChanges;
 import me.dhiren9939.backend.shared.access.AccessLevel;
@@ -45,7 +46,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     // ------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("issue: PROVISIONING key readable by its owner, one apiKey.created outbox row, secret never stored")
+    @DisplayName("issue: PROVISIONING key readable by its owner, one apiKey.projection.create outbox row, secret never stored")
     void issue() throws Exception {
         IssuedApiKeyResult issued = issue(owner, "ci key", Lifetime.ONE_DAY, ingestionWrite());
         ApiKeyView key = issued.key();
@@ -63,7 +64,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         List<OutboxRow> rows = outbox();
         assertThat(rows).hasSize(1);
         OutboxRow created = rows.getFirst();
-        assertThat(created.eventType()).isEqualTo("apiKey.created");
+        assertThat(created.eventType()).isEqualTo("apiKey.projection.create");
         assertThat(created.version()).isEqualTo(1);
         assertThat(created.apiKeyId()).isEqualTo(key.apiKeyId());
         assertThat(created.apiKeyName()).isEqualTo("ci key");
@@ -170,7 +171,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     // ------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("update: pending UPDATE + apiKey.updated at revision 2; the confirmed state is unchanged until confirm")
+    @DisplayName("update: pending UPDATE + apiKey.projection.update at revision 2; the confirmed state is unchanged until confirm")
     void update() {
         IssuedApiKeyResult issued = issueActive(owner, "old", Lifetime.ONE_DAY, ingestionWrite());
         UUID id = issued.key().apiKeyId();
@@ -186,11 +187,11 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         List<OutboxRow> rows = outbox();
         assertThat(rows).hasSize(2);
         OutboxRow updated = rows.get(1);
-        assertThat(updated.eventType()).isEqualTo("apiKey.updated");
+        assertThat(updated.eventType()).isEqualTo("apiKey.projection.update");
         assertThat(updated.version()).isEqualTo(2);
         assertThat(updated.apiKeyName()).isEqualTo("renamed");
         assertThat(updated.permissions()).isEqualTo("{\"INGESTION\":\"WRITE\",\"TENANT\":\"READ\"}");
-        assertThat(updated.accessSecretHash()).as("only apiKey.created carries the hash").isNull();
+        assertThat(updated.accessSecretHash()).as("only apiKey.projection.create carries the hash").isNull();
         assertThat(updated.emittedAt()).isNull();
 
         assertThat(count("access.pending_changes")).isEqualTo(1);
@@ -271,14 +272,14 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         UUID id = issue(owner, "k", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
 
         assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "x", null, null)))
-                .isInstanceOf(ApiKeyNotFoundException.class);
+                .isInstanceOf(ApiKeyUpdateFailure.class);
         assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(owner, id)))
-                .isInstanceOf(ApiKeyNotFoundException.class);
+                .isInstanceOf(ApiKeyUpdateFailure.class);
         assertThat(outbox()).hasSize(1);
     }
 
     @Test
-    @DisplayName("reject -> CHANGE_FAILED with its reason stored; dismiss -> ACTIVE with no event and no leftovers")
+    @DisplayName("reject -> CHANGE_FAILED with its reason stored and an update restating the confirmed state; dismiss -> ACTIVE with no event and no leftovers")
     void rejectedUpdateThenDismiss() {
         UUID id = issueActive(owner, "keep", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "lost", null, null));
@@ -286,6 +287,12 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
         rejectChange.handle(new RejectChangeCommand(id, 2, FailureReason.CONFIRM_TIMEOUT));
 
+        List<OutboxRow> afterReject = outbox();
+        assertThat(afterReject).hasSize(events + 1);
+        OutboxRow compensation = afterReject.getLast();
+        assertThat(compensation.eventType()).isEqualTo("apiKey.projection.update");
+        assertThat(compensation.version()).isEqualTo(3);
+        assertThat(compensation.apiKeyName()).as("restates the confirmed name").isEqualTo("keep");
         ApiKeyView failed = view(owner, id);
         assertThat(failed.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
         assertThat(failed.updateStatus()).isEqualTo(ChangeStatus.FAILED);
@@ -299,7 +306,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         ApiKeyView active = view(owner, id);
         assertThat(active.state()).isEqualTo(ApiKeyState.ACTIVE);
         assertThat(active.apiKeyName()).isEqualTo("keep");
-        assertThat(outbox()).hasSize(events);
+        assertThat(outbox()).as("dismissing emits nothing").hasSize(events + 1);
         assertThat(count("access.pending_changes")).isZero();
         assertThat(count("access.pending_change_permissions")).isZero();
         assertThat(count("access.api_key_permissions")).isEqualTo(1);
@@ -321,7 +328,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
         List<OutboxRow> rows = outbox();
         assertThat(rows).hasSize(2);
-        assertThat(rows.get(1).eventType()).isEqualTo("apiKey.deleted");
+        assertThat(rows.get(1).eventType()).isEqualTo("apiKey.projection.delete");
         assertThat(rows.get(1).version()).isEqualTo(2);
         assertThat(rows.get(1).permissions()).isEqualTo("{\"INGESTION\":\"WRITE\"}");
         assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(accessId, issued.accessSecret())))
@@ -358,10 +365,47 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         rejectChange.handle(new RejectChangeCommand(id, 2, FailureReason.REJECTED));
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
 
+        List<OutboxRow> afterReject = outbox();
+        assertThat(afterReject).extracting(OutboxRow::eventType)
+                .containsExactly("apiKey.projection.create", "apiKey.projection.delete", "apiKey.projection.create");
+        assertThat(afterReject.getLast().version()).isEqualTo(3);
+        assertThat(afterReject.getLast().accessSecretHash()).as("the restoring create carries the hash").isNotNull();
+
         dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(outbox()).hasSize(2);
+        assertThat(outbox()).as("dismissing emits nothing").hasSize(3);
         assertThat(count("access.pending_changes")).isZero();
+    }
+
+    @Test
+    @DisplayName("the owner cancels a pending update: CANCELLED_BY_USER, an update restating the confirmed state goes out at once, dismiss emits nothing")
+    void cancelledUpdate() {
+        UUID id = issueActive(owner, "keep", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
+        updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "changed-mind", null, null));
+        int events = outbox().size();
+
+        cancelApiKeyChange.handle(new CancelApiKeyChangeCommand(owner, id));
+
+        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
+        assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
+                .isEqualTo("CANCELLED_BY_USER");
+        List<OutboxRow> rows = outbox();
+        assertThat(rows).hasSize(events + 1);
+        assertThat(rows.getLast().eventType()).isEqualTo("apiKey.projection.update");
+        assertThat(rows.getLast().version()).isEqualTo(3);
+        assertThat(rows.getLast().apiKeyName()).isEqualTo("keep");
+        assertThat(changeEvents()).extracting(e -> e.get("event_type"), e -> e.get("change_version"),
+                        e -> e.get("change_kind"), e -> e.get("failure_reason"))
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("apiKey.change.confirmed", 1L, "CREATE", null),
+                        org.assertj.core.groups.Tuple.tuple("apiKey.change.rejected", 2L, "UPDATE", "CANCELLED_BY_USER"));
+
+        dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
+
+        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.ACTIVE);
+        assertThat(outbox()).hasSize(events + 1);
+        assertThatThrownBy(() -> cancelApiKeyChange.handle(new CancelApiKeyChangeCommand(owner, id)))
+                .as("nothing left to cancel").isInstanceOf(ApiKeyUpdateFailure.class);
     }
 
     // ------------------------------------------------------------------------------------------
@@ -369,7 +413,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     // ------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("a rejected creation is PROVISIONING_FAILED; dismiss removes the key and writes apiKey.deleted at revision 2")
+    @DisplayName("a rejected creation writes apiKey.projection.delete at revision 2 at once and is PROVISIONING_FAILED; dismiss removes the key and writes nothing")
     void failedCreation() {
         UUID id = issue(owner, "never", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
 
@@ -382,10 +426,13 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "x", null, null)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
 
+        assertThat(outbox()).extracting(OutboxRow::eventType)
+                .containsExactly("apiKey.projection.create", "apiKey.projection.delete");
+
         dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
 
         List<OutboxRow> rows = outbox();
-        assertThat(rows).extracting(OutboxRow::eventType).containsExactly("apiKey.created", "apiKey.deleted");
+        assertThat(rows).extracting(OutboxRow::eventType).containsExactly("apiKey.projection.create", "apiKey.projection.delete");
         assertThat(rows.get(1).version()).isEqualTo(2);
         assertThat(rows.get(1).apiKeyId()).isEqualTo(id);
         assertThat(rows.get(1).permissions()).isEqualTo("{\"INGESTION\":\"WRITE\"}");

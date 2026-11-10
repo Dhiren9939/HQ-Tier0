@@ -7,7 +7,8 @@ import me.dhiren9939.backend.access.domain.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.ApiKeyState;
 import me.dhiren9939.backend.access.domain.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.ChangeStatus;
-import me.dhiren9939.backend.access.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,7 @@ class ConfirmAndRejectChangeHandlerTest {
 
         @BeforeEach
         void setUp() {
-            handler = new ConfirmChangeHandler(apiKeys, CLOCK);
+            handler = new ConfirmChangeHandler(apiKeys, CLOCK, transactions());
         }
 
         private void confirm(ApiKey key, long revision) {
@@ -93,7 +94,7 @@ class ConfirmAndRejectChangeHandlerTest {
 
         @BeforeEach
         void setUp() {
-            handler = new RejectChangeHandler(apiKeys);
+            handler = new RejectChangeHandler(apiKeys, CLOCK, transactions());
         }
 
         private void reject(ApiKey key, long revision, FailureReason reason) {
@@ -110,7 +111,9 @@ class ConfirmAndRejectChangeHandlerTest {
             assertThat(key.getPendingChange().getStatus()).isEqualTo(ChangeStatus.FAILED);
             assertThat(key.getPendingChange().getFailureReason()).isEqualTo(FailureReason.REJECTED);
             assertThat(apiKeys.saves).isEqualTo(1);
-            assertThat(apiKeys.publishedEvents).isEmpty();
+            assertThat(apiKeys.publishedEvents).hasSize(1);
+            DeleteApiKeyProjectionCommand compensation = (DeleteApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
+            assertThat(compensation.version()).isEqualTo(2);
         }
 
         @Test
@@ -146,5 +149,16 @@ class ConfirmAndRejectChangeHandlerTest {
             assertThatThrownBy(() -> handler.handle(new RejectChangeCommand(UUID.randomUUID(), 1, FailureReason.REJECTED)))
                     .isInstanceOf(ApiKeyNotFoundException.class);
         }
+    }
+
+    @Test
+    void confirmAndRejectTurnExhaustedRetriesIntoAnUpdateFailure() {
+        ApiKey key = apiKeys.existing(changePending());
+
+        assertThatThrownBy(() -> new ConfirmChangeHandler(apiKeys, CLOCK, transactions(alwaysConflicts()))
+                .handle(new ConfirmChangeCommand(key.getApiKeyId(), 2))).isInstanceOf(ApiKeyUpdateFailure.class);
+        assertThatThrownBy(() -> new RejectChangeHandler(apiKeys, CLOCK, transactions(alwaysConflicts()))
+                .handle(new RejectChangeCommand(key.getApiKeyId(), 2, FailureReason.REJECTED))).isInstanceOf(ApiKeyUpdateFailure.class);
+        assertThat(apiKeys.saves).isZero();
     }
 }

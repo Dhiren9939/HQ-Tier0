@@ -19,7 +19,7 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
                     "failure_reason", "api_key_name", "expires_at"),
             "api_key_permissions", List.of("api_key_id", "scope", "access_level"),
             "pending_change_permissions", List.of("change_id", "scope", "access_level"),
-            "outbox", List.of("event_id", "event_type", "api_key_id", "change_version", "occurred_at", "emitted_at",
+            "outbox", List.of("change_kind", "failure_reason", "event_id", "event_type", "api_key_id", "change_version", "occurred_at", "emitted_at",
                     "user_id", "access_id", "access_secret_hash", "api_key_name", "permissions", "created_at"));
 
     @Test

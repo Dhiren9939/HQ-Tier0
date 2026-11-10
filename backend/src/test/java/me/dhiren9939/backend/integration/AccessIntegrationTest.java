@@ -4,6 +4,7 @@ import me.dhiren9939.backend.access.application.port.in.ApiKeyView;
 import me.dhiren9939.backend.access.application.port.in.ConfirmChangeCommand;
 import me.dhiren9939.backend.access.application.port.in.ConfirmChangeUseCase;
 import me.dhiren9939.backend.access.application.port.in.DeleteApiKeyUseCase;
+import me.dhiren9939.backend.access.application.port.in.CancelApiKeyChangeUseCase;
 import me.dhiren9939.backend.access.application.port.in.DismissApiKeyUseCase;
 import me.dhiren9939.backend.access.application.port.in.GetApiKeyQuery;
 import me.dhiren9939.backend.access.application.port.in.GetApiKeyUseCase;
@@ -44,6 +45,7 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
     @Autowired protected UpdateApiKeyUseCase updateApiKey;
     @Autowired protected DeleteApiKeyUseCase deleteApiKey;
     @Autowired protected DismissApiKeyUseCase dismissApiKey;
+    @Autowired protected CancelApiKeyChangeUseCase cancelApiKeyChange;
     @Autowired protected ConfirmChangeUseCase confirmChange;
     @Autowired protected RejectChangeUseCase rejectChange;
     @Autowired protected VerifyApiKeyUseCase verifyApiKey;
@@ -79,12 +81,19 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
         return count == null ? 0 : count;
     }
 
-    /** What the outbox holds, oldest revision first. */
+    /** The projection commands the outbox holds, oldest revision first. Change events are in {@link #changeEvents()}. */
+    protected List<java.util.Map<String, Object>> changeEvents() {
+        return jdbc.queryForList("""
+                select event_type, change_version, change_kind, failure_reason
+                from access.outbox where event_type like 'apiKey.change.%' order by occurred_at, event_id
+                """);
+    }
+
     protected List<OutboxRow> outbox() {
         return jdbc.query("""
                 select event_type, change_version, access_secret_hash, permissions, api_key_name,
                        occurred_at, emitted_at, api_key_id
-                from access.outbox order by change_version, event_type
+                from access.outbox where event_type like 'apiKey.projection.%' order by change_version, event_type
                 """, (rs, i) -> new OutboxRow(
                 rs.getString("event_type"),
                 rs.getLong("change_version"),

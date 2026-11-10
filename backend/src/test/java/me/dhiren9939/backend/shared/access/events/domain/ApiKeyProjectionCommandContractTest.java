@@ -1,4 +1,4 @@
-package me.dhiren9939.backend.shared.access.events;
+package me.dhiren9939.backend.shared.access.events.domain;
 
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Permissions;
@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * The lifecycle events are a published contract consumed by other contexts.
  * Changing a field name, order or event type string is a contract change and must fail here.
  */
-class ApiKeyEventContractTest {
+class ApiKeyProjectionCommandContractTest {
 
     private static List<String> componentNames(Class<? extends Record> type) {
         return Arrays.stream(type.getRecordComponents()).map(RecordComponent::getName).toList();
@@ -23,34 +23,34 @@ class ApiKeyEventContractTest {
 
     @Test
     void createdPayload() {
-        assertThat(componentNames(ApiKeyCreated.class)).containsExactly(
+        assertThat(componentNames(CreateApiKeyProjectionCommand.class)).containsExactly(
                 "apiKeyName", "apiKeyId", "version", "occurredAt", "emittedAt", "userId", "accessId",
                 "accessSecretHash", "permissions", "createdAt");
-        assertThat(ApiKeyCreated.EVENT_TYPE).isEqualTo("apiKey.created");
+        assertThat(CreateApiKeyProjectionCommand.EVENT_TYPE).isEqualTo("apiKey.projection.create");
     }
 
     @Test
     void updatedPayload() {
-        assertThat(componentNames(ApiKeyUpdated.class)).containsExactly(
+        assertThat(componentNames(UpdateApiKeyProjectionCommand.class)).containsExactly(
                 "apiKeyName", "apiKeyId", "version", "occurredAt", "emittedAt", "userId", "accessId",
                 "permissions", "createdAt");
-        assertThat(ApiKeyUpdated.EVENT_TYPE).isEqualTo("apiKey.updated");
+        assertThat(UpdateApiKeyProjectionCommand.EVENT_TYPE).isEqualTo("apiKey.projection.update");
     }
 
     @Test
     void deletedPayload() {
-        assertThat(componentNames(ApiKeyDeleted.class)).containsExactly(
+        assertThat(componentNames(DeleteApiKeyProjectionCommand.class)).containsExactly(
                 "apiKeyName", "apiKeyId", "version", "occurredAt", "emittedAt", "userId", "accessId",
                 "permissions", "createdAt");
-        assertThat(ApiKeyDeleted.EVENT_TYPE).isEqualTo("apiKey.deleted");
+        assertThat(DeleteApiKeyProjectionCommand.EVENT_TYPE).isEqualTo("apiKey.projection.delete");
     }
 
     @Test
     void eventsCarryNoExpiryAndBothTimestamps() {
-        for (Class<? extends Record> type : List.of(ApiKeyCreated.class, ApiKeyUpdated.class, ApiKeyDeleted.class)) {
+        for (Class<? extends Record> type : List.of(CreateApiKeyProjectionCommand.class, UpdateApiKeyProjectionCommand.class, DeleteApiKeyProjectionCommand.class)) {
             assertThat(componentNames(type)).doesNotContain("expiresAt").contains("occurredAt", "emittedAt");
         }
-        assertThat(Arrays.stream(ApiKeyEvent.class.getMethods()).map(java.lang.reflect.Method::getName))
+        assertThat(Arrays.stream(ApiKeyProjectionCommand.class.getMethods()).map(java.lang.reflect.Method::getName))
                 .doesNotContain("expiresAt").contains("occurredAt", "emittedAt");
     }
 
@@ -67,15 +67,15 @@ class ApiKeyEventContractTest {
 
     @Test
     void theEventInterfaceIsSealedAndPermitsExactlyTheThreeLifecycleEvents() {
-        assertThat(ApiKeyEvent.class.isSealed()).isTrue();
-        assertThat(ApiKeyEvent.class.getPermittedSubclasses())
-                .containsExactlyInAnyOrder(ApiKeyCreated.class, ApiKeyUpdated.class, ApiKeyDeleted.class);
+        assertThat(ApiKeyProjectionCommand.class.isSealed()).isTrue();
+        assertThat(ApiKeyProjectionCommand.class.getPermittedSubclasses())
+                .containsExactlyInAnyOrder(CreateApiKeyProjectionCommand.class, UpdateApiKeyProjectionCommand.class, DeleteApiKeyProjectionCommand.class);
     }
 
     @Test
     void eventTypeMatchesConstant() {
-        assertThat(ApiKeyCreated.builder().build().eventType()).isEqualTo("apiKey.created");
-        assertThat(ApiKeyUpdated.builder().build().eventType()).isEqualTo("apiKey.updated");
-        assertThat(ApiKeyDeleted.builder().build().eventType()).isEqualTo("apiKey.deleted");
+        assertThat(CreateApiKeyProjectionCommand.builder().build().eventType()).isEqualTo("apiKey.projection.create");
+        assertThat(UpdateApiKeyProjectionCommand.builder().build().eventType()).isEqualTo("apiKey.projection.update");
+        assertThat(DeleteApiKeyProjectionCommand.builder().build().eventType()).isEqualTo("apiKey.projection.delete");
     }
 }
