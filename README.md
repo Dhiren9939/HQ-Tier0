@@ -27,20 +27,16 @@ validate the core architecture (auth, ingestion, queuing, delivery) end-to-end. 
 
 ## Structure
 
-- **`api/`** — Spring Boot service (Java 25). Handles auth (Google OAuth2 login via a
+- **`backend/`** — Spring Boot modular monolith (Java 25). Handles auth (Google OAuth2 login via a
   cookie-based BFF flow with JWT access tokens and multi-device refresh sessions), user
   profiles, and API key management. Runs on port `8081`.
-- **`ingestion/`** — Spring Boot service. Accepts incoming events/webhooks and hands them off
-  for delivery via RabbitMQ.
-- **`delivery/`** — Spring Boot service. Consumes queued events and delivers them to subscriber
-  endpoints (with retries, signing, etc.).
 - **`frontend/`** — React Router app (React 19, Tailwind CSS 4, Radix UI). Runs on port `5173`.
 - **`docker-compose.yml`** — Local infrastructure: Postgres 17 (`maindb`), Redis, and RabbitMQ
-  (the event queue between ingestion and delivery).
+  (the event queue).
 
 ## Prerequisites
 
-- Java 25 (each service ships its own Maven wrapper, so no separate Maven install is needed)
+- Java 25 (the backend ships its own Maven wrapper, so no separate Maven install is needed)
 - Node.js + npm
 - Docker
 
@@ -57,16 +53,16 @@ This starts Postgres (`localhost:5432`, db `maindb`), Redis (`localhost:6379`), 
 
 ### 2. Apply the database schema
 
-`api` uses `spring.jpa.hibernate.ddl-auto=none`, so the schema is applied by hand:
+`backend` uses `spring.jpa.hibernate.ddl-auto=none`, so the schema is applied by hand:
 
 ```sh
-psql -h localhost -U postgres -d maindb -f api/schema/root.sql
+psql -h localhost -U postgres -d maindb -f backend/schema/root.sql
 ```
 
 ### 3. Configure the API
 
 ```sh
-cd api
+cd backend
 cp .env.example .env
 ```
 
@@ -78,7 +74,7 @@ Fill in `.env`:
 ### 4. Run the API
 
 ```sh
-cd api
+cd backend
 ./mvnw spring-boot:run
 ```
 
@@ -98,9 +94,9 @@ npm run dev
 
 The frontend runs on `http://localhost:5173` and expects the API's post-login redirect to land
 on `/dashboard` (configured via `app.frontend-post-login-url` / `app.frontend-login-url` in
-`api/src/main/resources/application-dev.properties`).
+`backend/src/main/resources/application-dev.properties`).
 
 ## Notes
 
-- Real secrets must never be committed to `api/src/main/resources/application*.properties`;
-  they're injected via `api/.env` (git-ignored).
+- Real secrets must never be committed to `backend/src/main/resources/application*.properties`;
+  they're injected via `backend/.env` (git-ignored).
