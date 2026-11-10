@@ -1,0 +1,284 @@
+{
+  "info": {
+    "name": "HQ Access (API keys)",
+    "description": "User-facing API key endpoints and the internal confirm/reject endpoints the data plane calls. Run the requests in order: Create stores apiKeyId, then confirm revision 1, and so on. Every change takes a new revision, and a failed change also uses one for its compensating command, so set the `revision` variable to the revision you are answering (the pending one). userId comes from the URL until authentication exists.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "userId", "value": "00000000-0000-0000-0000-000000000001" },
+    { "key": "apiKeyId", "value": "" },
+    { "key": "revision", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "User",
+      "item": [
+        {
+          "name": "Create API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('apiKeyId', body.apiKeyId);",
+                  "pm.collectionVariables.set('revision', '1');",
+                  "pm.test('secret is returned once, creation is PENDING', () => {",
+                  "  pm.expect(body.accessSecret).to.be.a('string');",
+                  "  pm.expect(body.updateStatus).to.eql('PENDING');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"deploy-key\",\n  \"expiry\": \"ONE_MONTH\",\n  \"permissions\": {\n    \"INGESTION\": \"WRITE\",\n    \"TENANT\": \"READ_WRITE\"\n  }\n}"
+            },
+            "description": "expiry: ONE_DAY | ONE_MONTH | NEVER. Scopes: INGESTION (WRITE), TENANT and CHANNEL (READ, WRITE, READ_WRITE). A missing scope means NONE."
+          }
+        },
+        {
+          "name": "Get API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('updateStatus is present only while a change is pending or failed, and every scope is listed', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.updateStatus === undefined || ['PENDING', 'FAILED'].includes(b.updateStatus)).to.be.true;",
+                  "  pm.expect(Object.keys(b.permissions)).to.have.members(['INGESTION', 'TENANT', 'CHANNEL']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}"
+          }
+        },
+        {
+          "name": "Update API key (rename, change expiry)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('change is pending', () => pm.expect(pm.response.json().updateStatus).to.eql('PENDING'));",
+                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"renamed-key\",\n  \"expiry\": \"NEVER\"\n}" },
+            "description": "Partial update. Only the fields you send change. Sets `revision` to the new pending revision on success, assuming the key was last confirmed at the previous one; adjust the variable if a failed change used a revision in between."
+          }
+        },
+        {
+          "name": "Update permissions (remove TENANT, keep the rest)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"permissions\": {\n    \"TENANT\": \"NONE\"\n  }\n}" },
+            "description": "NONE removes the scope; scopes not listed are unchanged; a null level means unchanged."
+          }
+        },
+        {
+          "name": "Delete API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}",
+            "description": "Requests deletion. The key stays visible as CHANGE_PENDING until the data plane confirms, then becomes a DELETED tombstone until dismissed."
+          }
+        },
+        {
+          "name": "Cancel pending change",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}/cancel",
+            "description": "Withdraws the change that is still pending. It fails as CANCELLED_BY_USER and its compensating command goes out at once, using the next revision. Then dismiss it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dismiss (acknowledge failure / remove finished key)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}/dismiss",
+            "description": "Only acknowledges. Clears a failed update/delete, or removes a failed creation or a DELETED tombstone. Emits nothing."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('204 No Content', () => pm.response.to.have.status(204));"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Data plane (internal)",
+      "item": [
+        {
+          "name": "Confirm change",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('204 No Content', () => pm.response.to.have.status(204));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/internal/apikey/{{apiKeyId}}/changes/{{revision}}/confirm",
+            "description": "The data plane confirms the pending revision. 409 if that revision is not the pending one (stale, or the change already failed)."
+          }
+        },
+        {
+          "name": "Reject change",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/internal/apikey/{{apiKeyId}}/changes/{{revision}}/reject",
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"REJECTED\"\n}" },
+            "description": "reason: REJECTED (default when the body is omitted), CONFIRM_TIMEOUT, OUTBOX_PUBLISH_FAILURE or CANCELLED_BY_USER. The compensating command takes the next revision, which the test script adds to `revision`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error cases",
+      "item": [
+        {
+          "name": "Create with invalid level for scope (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('400 Bad Request', () => pm.response.to.have.status(400));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"bad\",\n  \"expiry\": \"NEVER\",\n  \"permissions\": { \"INGESTION\": \"READ_WRITE\" }\n}" }
+          }
+        },
+        {
+          "name": "Get unknown key (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('404 Not Found', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/11111111-1111-1111-1111-111111111111"
+          }
+        },
+        {
+          "name": "Update while a change is pending (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('409 Conflict when a change is pending or failed', () => pm.expect(pm.response.code).to.be.oneOf([200, 409]));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"again\"\n}" },
+            "description": "Run right after an Update without confirming it: only one change may be pending, so this returns 409."
+          }
+        }
+      ]
+    }
+  ]
+}
