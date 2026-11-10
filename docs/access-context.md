@@ -38,18 +38,22 @@ Ubiquitous language and rules of the Access context (supporting subdomain, contr
 | **Pending Change** | At most one per key. Was `ApiKeyNextEntity`. |
 | **Change Kind** | `CREATE` / `UPDATE` / `DELETE`. |
 | **Change Status** | `PENDING` / `FAILED`. |
-| **Propagation** | The aggregate registers the control event; a `BEFORE_COMMIT` listener writes it to the outbox in the same transaction (see Outbox below). |
+| **Propagation** | The aggregate registers the control event; `ApiKeysAdapter` writes it to the outbox in the same transaction (see Outbox below). |
 | **Confirm / Reject** | Data plane's answer for a specific revision. Confirm applies the change; reject marks it failed. |
-| **Dismiss** | Owner clears a failed change, or removes a key that is finished (`PROVISIONING_FAILED`, `DELETED`). Replaces user-facing "acknowledgeFailure". Nothing disappears without a dismiss. |
+| **Dismiss** | The owner acknowledges that they understand the state of their key: it clears a failed change, or removes a key that is finished (`PROVISIONING_FAILED`, `DELETED`). It never emits anything; compensating commands go out when the change fails. Replaces user-facing "acknowledgeFailure". Nothing disappears without a dismiss. |
+| **Cancel** | The owner withdraws a change that is still pending. It fails with `CANCELLED_BY_USER` and is compensated at once, like any failure. |
+| **Change events** | Facts about how a requested revision ended, written to the same outbox: `ApiKeyChangeConfirmed` (`apiKey.change.confirmed`: the data plane confirmed it, so it took effect) and `ApiKeyChangeRejected` (`apiKey.change.rejected`: it failed for a `FailureReason`: nack, timeout, outbox failure or user cancel). Both carry `apiKeyId`, `userId`, `accessId`, `version` (the revision), `changeKind` (CREATE/UPDATE/DELETE), `occurredAt`, `emittedAt`; rejected adds `failureReason`. A rejected event is followed by its compensating command in the stream. `ChangeKind` and `FailureReason` live in `shared/access/events/domain` because the events publish them. |
+| **Compensating command** | Emitted the moment a change fails, at the next revision, because the data plane may have applied it anyway: failed create -> `DeleteApiKeyProjectionCommand`; failed update -> `UpdateApiKeyProjectionCommand` restating the confirmed state; failed delete -> `CreateApiKeyProjectionCommand` restoring the key (it carries the secret hash, so it also works when the key is gone downstream). |
 | **Deleted (tombstone)** | A confirmed delete. The key stays visible, cannot authenticate, and accepts no changes until the owner dismisses it. |
-| **Failure Reason** | Exactly three: `REJECTED` (data plane nack), `CONFIRM_TIMEOUT` (no confirm/reject in time), `OUTBOX_PUBLISH_FAILURE`. |
+| **Failure Reason** | Exactly four: `REJECTED` (data plane nack), `CONFIRM_TIMEOUT` (no confirm/reject in time), `OUTBOX_PUBLISH_FAILURE`, `CANCELLED_BY_USER`. |
 
 ## Commands
 
 - **Issue**: create a key; revision 1, pending `CREATE`.
 - **Update**: change name, permissions and/or lifetime; next revision, pending `UPDATE`.
 - **Delete**: next revision, pending `DELETE`.
-- **Dismiss**: clear a failed change.
+- **Dismiss**: acknowledge a failed or finished key; emits nothing.
+- **Cancel**: withdraw the pending change (fails it as `CANCELLED_BY_USER`).
 - **Confirm(revision)**: data plane confirms that revision.
 - **Reject(revision, reason)**: data plane rejects that revision.
 
@@ -77,24 +81,25 @@ States are derived from the confirmed state and the pending change; they are not
                |               CHANGE_PENDING --fail--> CHANGE_FAILED
        dismiss |                      |                    |
                v                      | confirm(DELETE)    | dismiss
-      removed + ApiKeyDeleted         v                    +--> ACTIVE
+      removed + DeleteApiKeyProjectionCommand         v                    +--> ACTIVE
                                     DELETED --dismiss--> removed (no event)
 ```
 
-"fail" means reject, `CONFIRM_TIMEOUT` or `OUTBOX_PUBLISH_FAILURE`.
+"fail" means reject, `CONFIRM_TIMEOUT`, `OUTBOX_PUBLISH_FAILURE` or `CANCELLED_BY_USER`, and each one emits the compensating command immediately. Dismiss (shown in the diagram) only acknowledges.
 
 ## Behaviour decisions
 
 - The owner **can** read a provisioning key.
-- Dismissing a `PROVISIONING_FAILED` key removes it **and emits `ApiKeyDeleted`** (next revision), so the event stream stays consistent if the downstream service had actually applied the create.
-- A confirmed delete does **not** remove the key. It becomes a visible `DELETED` tombstone and only the owner's dismiss removes it. That dismiss emits no event, because `ApiKeyDeleted` was already published when the delete was requested. A failed delete follows the normal failed-change path (`CHANGE_FAILED`, dismiss returns to `ACTIVE`).
+- A change that fails (reject, timeout, outbox failure or user cancel) emits its compensating command **immediately**, at the next revision, so the event stream stays consistent if the downstream service had actually applied it. Dismissing only records that the owner has seen the failure and emits nothing.
+- A confirm that arrives after the change already failed is refused (409), because the revision is no longer pending.
+- A confirmed delete does **not** remove the key. It becomes a visible `DELETED` tombstone and only the owner's dismiss removes it. That dismiss emits no event, because `DeleteApiKeyProjectionCommand` was already published when the delete was requested. A failed delete follows the normal failed-change path (`CHANGE_FAILED`, dismiss returns to `ACTIVE`).
 - The Access ID stays reserved until the tombstone is dismissed.
-- `ApiKeyCreated`, `ApiKeyUpdated`, `ApiKeyDeleted` keep their names, fields and event-type strings (`apiKey.created`, `apiKey.updated`, `apiKey.deleted`). They mean "revision N was requested and must be provisioned", not "took effect". Monitoring and Ingestion depend on them.
+- `CreateApiKeyProjectionCommand`, `UpdateApiKeyProjectionCommand`, `DeleteApiKeyProjectionCommand` carry the type strings (`apiKey.projection.create`, `apiKey.projection.update`, `apiKey.projection.delete`). They mean "revision N was requested and must be provisioned", not "took effect". Monitoring and Ingestion depend on them.
 
 ## Invariants
 
 1. The secret is never stored.
-2. At most one pending change per key. A failed change must be dismissed before any new change. The exceptions are dismissing a failed creation (removes the key and emits `ApiKeyDeleted`) and dismissing a `DELETED` tombstone (removes the key, no event). A `DELETED` key accepts no update or delete.
+2. At most one pending change per key. A failed change must be dismissed before any new change. The exceptions are dismissing a failed creation and dismissing a `DELETED` tombstone (both remove the key and emit nothing). A `DELETED` key accepts no update or delete.
 3. Verification uses confirmed state only. Provisioning keys cannot authenticate; a key with a pending update authenticates with the old permissions until confirmed.
 4. Confirm/reject must name the pending revision; mismatches are refused.
 5. An update that changes nothing creates no pending change and no event.
@@ -121,7 +126,7 @@ States are derived from the confirmed state and the pending change; they are not
 | `Permissions(ingestionPermission, tenantPermission, channelPermission)` record with `@Embeddable` | `Permissions` map-form value object (`shared.access`, no JPA) over `Scope` -> `AccessLevel` |
 | `ApiKeyPermissions.Ingestion` / `.Tenant` / `.Channel` enums | `Scope` enum (declares its allowed levels) + one `AccessLevel` enum |
 | `ApiKeyRepository` (Spring Data) | `ApiKeys` port (`application.port.out`), `ApiKeysAdapter` + `JpaApiKeyRepository` (`adapter.out.persistence`) |
-| `ApiKeyEventEmitterService` | removed; the aggregate registers events and `OutboxEventListener` (`adapter.out.persistence`) writes the outbox rows |
+| `ApiKeyEventEmitterService` | removed; the aggregate registers events and `ApiKeysAdapter` (`adapter.out.persistence`) writes the outbox rows |
 | `ApiKeyConfig` | `config.ApiKeyConfig` |
 | `Sha256SecretHasher`, `SortableEncoder` | `adapter.out.keyformat` |
 | `ApiKeyCreationProviderV1` + `ApiKeyCreationService` (`@Qualifier("creationV1")`) | `V1CredentialIssuer`; `IssueCredentialPort` bean picks the issuer named by `access.key-format.current` |
@@ -131,12 +136,12 @@ States are derived from the confirmed state and the pending change; they are not
 | `ApiKeyService`, `ApiKeyPersistenceService` | one `*UseCase` + `*Handler` per operation |
 | `ApiKeyController` / `ApiKeyInternalController` in `web` | `adapter.in.web`, depend on input ports only |
 | `ApiKeyFacadeImpl` | `adapter.in.facade.ApiKeyFacadeImpl`, calls `VerifyApiKeyUseCase` |
-| `acknowledgeFailure` (user-facing) | Dismiss: `POST /api/v1/user/{userId}/apikey/{apiKeyId}/dismiss` |
+| `acknowledgeFailure` (user-facing) | Dismiss: `POST /api/v1/user/{userId}/apikey/{apiKeyId}/dismiss`; new: Cancel `POST /api/v1/user/{userId}/apikey/{apiKeyId}/cancel` |
 | six `/internal/apikey/{id}/{creation,update,deletion}/{success,failure}` endpoints | `POST /internal/apikey/{id}/changes/{revision}/confirm` and `/reject` (optional body `{"reason": ...}`, default `REJECTED`) |
 | schema `api_key`, tables `api_keys`, `api_key_next`, `outbox` | schema `access`, tables `api_keys`, `pending_changes`, `outbox` |
 | Delivery Service (other context) | Dispatcher |
 
-GET and create responses gain a derived `state` field (`ApiKeyState`); `updateStatus` stays.
+Responses carry `updateStatus` (`PENDING` or `FAILED`, absent when no change is pending or failed). The derived `ApiKeyState` stays internal to the application; it is not in the HTTP response. Note a confirmed delete (tombstone) therefore looks like an active key in the response, since both have no pending change.
 
 ## Package structure
 
@@ -145,7 +150,7 @@ Pragmatic clean architecture: the dependency rule is `adapter` -> `application` 
 ```
 me.dhiren9939.backend
 ├── shared/access/                public contracts, no behaviour
-│   ├── events/                   ApiKeyCreated, ApiKeyUpdated, ApiKeyDeleted, ApiKeyEvent
+│   ├── events/                   CreateApiKeyProjectionCommand, UpdateApiKeyProjectionCommand, DeleteApiKeyProjectionCommand, ApiKeyProjectionCommand
 │   ├── Permissions, Scope, AccessLevel, InvalidPermissionsException
 │   └── ApiKeyFacade, ApiKeyVerifyDto, ApiKeyVerificationFailure, ApiKeyParsingFailure
 └── access/                       the Access bounded context (holds no classes at its root)
@@ -156,11 +161,11 @@ me.dhiren9939.backend
     │   ├── port/in/              one use case per operation, plus its command/query and result records;
     │   │                         ApiKeyView (secret-free read model), VerifiedApiKey
     │   ├── port/out/             ApiKeys (repository), IssueCredentialPort, CredentialVerifier
-    │   └── usecase/              one package-private *Handler per input port, OptimisticLockRetry, ParsedApiKey
+    │   └── usecase/              one package-private *Handler per input port, RetriedTransaction, OptimisticLockRetry, ParsedApiKey
     ├── adapter/
     │   ├── in/web/               ApiKeyController, ApiKeyInternalController, ApiKeyExceptionHandler, DTOs
     │   ├── in/facade/            ApiKeyFacadeImpl (in-process verification entry point)
-    │   ├── out/persistence/      ApiKeysAdapter, JpaApiKeyRepository, outbox entity + repository, OutboxEventListener
+    │   ├── out/persistence/      ApiKeysAdapter, JpaApiKeyRepository, outbox entity + repository
     │   └── out/keyformat/        CredentialIssuer, Sha256SecretHasher, SortableEncoder, v1/ issuer + verifier
     └── config/                   ApiKeyConfig (Clock, SecureRandom, selects the current key format)
 ```
@@ -190,6 +195,7 @@ Each is an input port in `application.port.in` with one handler in `application.
 | `UpdateApiKeyUseCase` | `UpdateApiKeyCommand(userId, apiKeyId, name?, lifetime?, permissions?)` | `ApiKeyView`; runs in its own transaction with an optimistic-lock retry |
 | `DeleteApiKeyUseCase` | `DeleteApiKeyCommand(userId, apiKeyId)` | none |
 | `DismissApiKeyUseCase` | `DismissApiKeyCommand(userId, apiKeyId)` | none |
+| `CancelApiKeyChangeUseCase` | `CancelApiKeyChangeCommand(userId, apiKeyId)` | none |
 | `ConfirmChangeUseCase` | `ConfirmChangeCommand(apiKeyId, revision)` | none |
 | `RejectChangeUseCase` | `RejectChangeCommand(apiKeyId, revision, reason)` | none |
 | `VerifyApiKeyUseCase` | `VerifyApiKeyQuery(accessId, accessSecret)` | `VerifiedApiKey` |
@@ -205,9 +211,9 @@ Failures are mapped to HTTP by `ApiKeyExceptionHandler`: not found -> 404, refus
 
 ## Outbox
 
-Events are registered by the `ApiKey` aggregate itself (`issue`, `requestUpdate`, `requestDeletion`, and `dismiss` of a failed creation) and collected with `pullDomainEvents()`. `ApiKeysAdapter` publishes them through Spring's `ApplicationEventPublisher` after `save`/`delete`. `OutboxEventListener` handles them in `@TransactionalEventListener(phase = BEFORE_COMMIT)` and saves the outbox row in the same transaction, so if the row cannot be written the key change rolls back too. Event types are unchanged.
+Events are registered by the `ApiKey` aggregate itself (`issue`, `requestUpdate`, `requestDeletion`, and `reject`/`cancelPendingChange`, which register the compensating command) and collected with `pullDomainEvents()`. `ApiKeysAdapter` writes each one to the outbox itself (`EventOutboxEntity.of(event)`) right after `save`/`delete`, in the caller's transaction, so if the row cannot be written the key change rolls back too. Event types are unchanged.
 
-`ApiKeyEvent` is a `sealed interface` that permits exactly `ApiKeyCreated`, `ApiKeyUpdated` and `ApiKeyDeleted`. Adding an event type means adding it to `permits`, which makes the listener's exhaustive `switch` fail to compile until it is handled.
+`ApiKeyProjectionCommand` is a `sealed interface` that permits exactly `CreateApiKeyProjectionCommand`, `UpdateApiKeyProjectionCommand` and `DeleteApiKeyProjectionCommand`. Adding an event type means adding it to `permits`, which makes the listener's exhaustive `switch` fail to compile until it is handled.
 
 ### Event timestamps and fields
 
@@ -217,7 +223,7 @@ Events are registered by the `ApiKey` aggregate itself (`issue`, `requestUpdate`
 | `emittedAt` | When the event was published into the stream. The aggregate cannot know this, so registered events carry `null`, and so does the outbox row until a relay publishes it. Outbox column `emitted_at` is nullable. |
 | `createdAt` | When the key was issued. Unchanged. |
 
-`expiresAt` was **removed** from `ApiKeyCreated`, `ApiKeyUpdated`, `ApiKeyDeleted` and `ApiKeyEvent` (user decision, 2026-11-10). The aggregate still has its own expiry, and `canAuthenticate(now)` enforces it inside Access.
+`expiresAt` was **removed** from `CreateApiKeyProjectionCommand`, `UpdateApiKeyProjectionCommand`, `DeleteApiKeyProjectionCommand` and `ApiKeyProjectionCommand` (user decision, 2026-11-10). The aggregate still has its own expiry, and `canAuthenticate(now)` enforces it inside Access.
 
 ### Decision: key expiry is not propagated to the data plane
 
@@ -243,7 +249,7 @@ Nothing else changes: updates (`PermissionChanges`), persistence, the web layer,
 
 **Wire shapes** (scope and level names are the values; renaming one is a contract change):
 - REST request/response `permissions` is a JSON object keyed by scope name. Create and update accept a partial object; responses list every scope, with `NONE` where nothing was granted. A level the scope does not accept, or an unknown scope or level name, is HTTP 400.
-- Events (`ApiKeyCreated`, `ApiKeyUpdated`, `ApiKeyDeleted`) carry `permissions` as the same object but list only granted scopes, for example `{"INGESTION":"WRITE","TENANT":"READ"}`; `{}` means no access. The outbox stores exactly that string in `access.outbox.permissions`.
+- Events (`CreateApiKeyProjectionCommand`, `UpdateApiKeyProjectionCommand`, `DeleteApiKeyProjectionCommand`) carry `permissions` as the same object but list only granted scopes, for example `{"INGESTION":"WRITE","TENANT":"READ"}`; `{}` means no access. The outbox stores exactly that string in `access.outbox.permissions`.
 
 **Storage:** `access.api_key_permissions` and `access.pending_change_permissions` hold one row per granted scope (`scope`, `access_level`); the outbox keeps the JSON text. `JpaMappingTest` checks these mappings offline; they have not run against a real Postgres.
 

@@ -57,7 +57,7 @@ The backend is a modular monolith that will be split later. Each context below i
 
 **Published Language (control plane to data plane).** Identity, Access and Subscriptions write control events to an outbox. Consumers build projections from them. The data plane acknowledges each control event back (confirm or reject).
 
-**Access to Ingestion.** Ingestion consumes Access events (`apiKey.created/updated/deleted`) into its own projection and authenticates from that. It confirms or rejects each revision. The events carry no key expiry (`expiresAt` was removed) and no compensating expiry event exists, so this projection does not enforce expiry; that is deliberate, see `access-context.md`, Outbox.
+**Access to Ingestion.** Ingestion consumes Access events (`apiKey.projection.create/update/delete`) into its own projection and authenticates from that. It confirms or rejects each revision. The events carry no key expiry (`expiresAt` was removed) and no compensating expiry event exists, so this projection does not enforce expiry; that is deliberate, see `access-context.md`, Outbox.
 
 **Subscriptions to Dispatcher.** The Dispatcher consumes channel events and Ingestion events. It is the only consumer that acknowledges channel events.
 
