@@ -6,7 +6,6 @@ import me.dhiren9939.backend.access.application.port.in.ConfirmChangeUseCase;
 import me.dhiren9939.backend.access.application.port.out.ApiKeys;
 import me.dhiren9939.backend.access.domain.ApiKey;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 
@@ -15,12 +14,14 @@ import java.time.Clock;
 class ConfirmChangeHandler implements ConfirmChangeUseCase {
     private final ApiKeys apiKeys;
     private final Clock clock;
+    private final RetriedTransaction transactions;
 
     @Override
-    @Transactional
     public void handle(ConfirmChangeCommand command) {
-        ApiKey key = apiKeys.require(command.apiKeyId());
-        key.confirm(command.revision(), clock.instant());
-        apiKeys.save(key);
+        transactions.execute(() -> {
+            ApiKey key = apiKeys.require(command.apiKeyId());
+            key.confirm(command.revision(), clock.instant());
+            apiKeys.save(key);
+        });
     }
 }

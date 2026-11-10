@@ -5,7 +5,7 @@ import me.dhiren9939.backend.access.application.port.in.ConfirmChangeCommand;
 import me.dhiren9939.backend.access.application.port.in.ConfirmChangeUseCase;
 import me.dhiren9939.backend.access.application.port.in.RejectChangeCommand;
 import me.dhiren9939.backend.access.application.port.in.RejectChangeUseCase;
-import me.dhiren9939.backend.access.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 

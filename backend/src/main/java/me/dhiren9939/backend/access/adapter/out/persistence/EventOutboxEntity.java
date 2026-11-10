@@ -5,9 +5,12 @@ import lombok.*;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.shared.access.Scope;
-import me.dhiren9939.backend.shared.access.events.ApiKeyCreated;
-import me.dhiren9939.backend.shared.access.events.ApiKeyDeleted;
-import me.dhiren9939.backend.shared.access.events.ApiKeyUpdated;
+import me.dhiren9939.backend.shared.access.events.domain.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyChangeRejected;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyEvent;
+import me.dhiren9939.backend.shared.access.events.domain.UpdateApiKeyProjectionCommand;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
@@ -55,21 +58,67 @@ class EventOutboxEntity {
     @Builder.Default
     private String accessSecretHash = null;
 
-    @Column(nullable = false, length = 256)
+    /** Projection commands only; null on change events. */
+    @Column(length = 256)
     private String apiKeyName;
 
     /**
      * Permissions as a JSON object keyed by scope name, e.g. {@code {"INGESTION":"WRITE","TENANT":"READ"}};
      * a scope that is absent means NONE. This is the wire shape consumers read.
      */
-    @Column(name = "permissions", nullable = false, columnDefinition = "text")
+    @Column(name = "permissions", columnDefinition = "text")
     private String permissions;
 
-    @Column(nullable = false)
+    /** Projection commands only; null on change events. */
     private Instant createdAt;
 
+    /** Change events only: the kind of change that was confirmed or rejected. */
+    @Column(length = 20)
+    private String changeKind;
 
-    static EventOutboxEntity from(ApiKeyCreated event) {
+    /** Rejected change events only. */
+    @Column(length = 50)
+    private String failureReason;
+
+
+    static EventOutboxEntity of(ApiKeyEvent event) {
+        return switch (event) {
+            case CreateApiKeyProjectionCommand created -> from(created);
+            case UpdateApiKeyProjectionCommand updated -> from(updated);
+            case DeleteApiKeyProjectionCommand deleted -> from(deleted);
+            case ApiKeyChangeConfirmed confirmed -> from(confirmed);
+            case ApiKeyChangeRejected rejected -> from(rejected);
+        };
+    }
+
+    static EventOutboxEntity from(ApiKeyChangeConfirmed event) {
+        return EventOutboxEntity.builder()
+                .eventType(event.eventType())
+                .apiKeyId(event.apiKeyId())
+                .version(event.version())
+                .occurredAt(event.occurredAt())
+                .emittedAt(event.emittedAt())
+                .userId(event.userId())
+                .accessId(event.accessId())
+                .changeKind(event.changeKind().name())
+                .build();
+    }
+
+    static EventOutboxEntity from(ApiKeyChangeRejected event) {
+        return EventOutboxEntity.builder()
+                .eventType(event.eventType())
+                .apiKeyId(event.apiKeyId())
+                .version(event.version())
+                .occurredAt(event.occurredAt())
+                .emittedAt(event.emittedAt())
+                .userId(event.userId())
+                .accessId(event.accessId())
+                .changeKind(event.changeKind().name())
+                .failureReason(event.failureReason().name())
+                .build();
+    }
+
+    static EventOutboxEntity from(CreateApiKeyProjectionCommand event) {
         return EventOutboxEntity.builder()
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())
@@ -85,7 +134,7 @@ class EventOutboxEntity {
                 .build();
     }
 
-    static EventOutboxEntity from(ApiKeyUpdated event) {
+    static EventOutboxEntity from(UpdateApiKeyProjectionCommand event) {
         return EventOutboxEntity.builder()
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())
@@ -100,7 +149,7 @@ class EventOutboxEntity {
                 .build();
     }
 
-    static EventOutboxEntity from(ApiKeyDeleted event) {
+    static EventOutboxEntity from(DeleteApiKeyProjectionCommand event) {
         return EventOutboxEntity.builder()
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())

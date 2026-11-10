@@ -1,5 +1,7 @@
 package me.dhiren9939.backend.access.domain;
 
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.ChangeKind;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;

@@ -1,6 +1,6 @@
 package me.dhiren9939.backend.access.application.port.in;
 
-import me.dhiren9939.backend.access.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
 
 import java.util.UUID;
 

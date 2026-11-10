@@ -1,5 +1,7 @@
 package me.dhiren9939.backend.access.domain;
 
+import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
+import me.dhiren9939.backend.shared.access.events.domain.ChangeKind;
 import com.github.f4b6a3.uuid.UuidCreator;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -7,10 +9,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.shared.access.Scope;
-import me.dhiren9939.backend.shared.access.events.ApiKeyCreated;
-import me.dhiren9939.backend.shared.access.events.ApiKeyDeleted;
-import me.dhiren9939.backend.shared.access.events.ApiKeyEvent;
-import me.dhiren9939.backend.shared.access.events.ApiKeyUpdated;
+import me.dhiren9939.backend.shared.access.events.domain.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyChangeRejected;
+import me.dhiren9939.backend.shared.access.events.domain.ApiKeyEvent;
+import me.dhiren9939.backend.shared.access.events.domain.UpdateApiKeyProjectionCommand;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -184,32 +188,59 @@ public class ApiKey {
         }
         this.confirmedRevision = change.getRevision();
         this.pendingChange = null;
-    }
-
-    /** The pending change at {@code revision} failed for {@code reason}. */
-    public void reject(long revision, FailureReason reason) {
-        Objects.requireNonNull(reason, "reason");
-        requirePendingAt(revision).fail(reason);
+        domainEvents.add(ApiKeyChangeConfirmed.builder()
+                .apiKeyId(apiKeyId).version(change.getRevision()).changeKind(change.getKind())
+                .occurredAt(now).userId(userId).accessId(accessId).build());
     }
 
     /**
-     * The owner dismisses a finished or failed key. Tells the caller whether the key must be removed.
-     * Dismissing a failed creation registers an {@code ApiKeyDeleted} event.
+     * The pending change at {@code revision} failed for {@code reason}. The data plane may have applied it anyway,
+     * so the compensating command is registered at once, at the next revision, restating the confirmed state:
+     * delete for a failed creation, update for a failed update, create (restore) for a failed delete. The create
+     * carries the secret hash, so it also works when the data plane already removed the key.
      */
-    public DismissResult dismiss(Instant now) {
+    public void reject(long revision, FailureReason reason, Instant now) {
+        Objects.requireNonNull(reason, "reason");
+        failAndCompensate(requirePendingAt(revision), reason, now);
+    }
+
+    /**
+     * The owner cancels the change that is still pending. It fails with {@link FailureReason#CANCELLED_BY_USER}
+     * and, like any failure, registers its compensating command at once: the data plane may already have applied
+     * the change.
+     */
+    public void cancelPendingChange(Instant now) {
+        if (pendingChange == null || !pendingChange.isPending())
+            throw new ApiKeyUpdateFailure("API key has no pending change to cancel");
+        failAndCompensate(pendingChange, FailureReason.CANCELLED_BY_USER, now);
+    }
+
+    private void failAndCompensate(PendingChange change, FailureReason reason, Instant now) {
+        change.fail(reason);
+        domainEvents.add(ApiKeyChangeRejected.builder()
+                .apiKeyId(apiKeyId).version(change.getRevision()).changeKind(change.getKind())
+                .failureReason(reason).occurredAt(now).userId(userId).accessId(accessId).build());
+
+        this.revision++;
+        domainEvents.add(switch (change.getKind()) {
+            case CREATE -> deletedEvent(now, desiredState());
+            case UPDATE -> updatedEvent(now, confirmedState());
+            case DELETE -> createdEvent(now, confirmedState());
+        });
+    }
+
+    /**
+     * The owner acknowledges a failed or finished key. Tells the caller whether the key must be removed.
+     * It only records that the owner has seen the state; the compensating commands were already registered
+     * when the change failed, so dismissing registers nothing.
+     */
+    public DismissResult dismiss() {
         return switch (state()) {
             case CHANGE_FAILED -> {
                 pendingChange = null;
                 yield DismissResult.CLEARED;
             }
-            // The data plane may have applied the creation even though confirmation failed,
-            // so the event stream needs a matching delete.
-            case PROVISIONING_FAILED -> {
-                revision++;
-                domainEvents.add(deletedEvent(now));
-                yield DismissResult.REMOVED;
-            }
-            case DELETED -> DismissResult.REMOVED;
+            case PROVISIONING_FAILED, DELETED -> DismissResult.REMOVED;
             default -> throw new ApiKeyUpdateFailure("API key has nothing to dismiss");
         };
     }
@@ -252,6 +283,11 @@ public class ApiKey {
                 && (expiresAt == null || !expiresAt.isBefore(now));
     }
 
+    /** The confirmed state, ignoring any pending or failed change. */
+    private DesiredState confirmedState() {
+        return new DesiredState(apiKeyName, getPermissions(), expiresAt);
+    }
+
     /** What this key will look like once its pending change (if any) is confirmed. */
     public DesiredState desiredState() {
         return pendingChange != null
@@ -261,9 +297,12 @@ public class ApiKey {
 
     // ---------------------------------------------------------------------------------------------
 
-    private ApiKeyCreated createdEvent(Instant now) {
-        DesiredState desired = desiredState();
-        return ApiKeyCreated.builder()
+    private CreateApiKeyProjectionCommand createdEvent(Instant now) {
+        return createdEvent(now, desiredState());
+    }
+
+    private CreateApiKeyProjectionCommand createdEvent(Instant now, DesiredState desired) {
+        return CreateApiKeyProjectionCommand.builder()
                 .apiKeyName(desired.apiKeyName())
                 .apiKeyId(apiKeyId)
                 .version(revision)
@@ -276,9 +315,12 @@ public class ApiKey {
                 .build();
     }
 
-    private ApiKeyUpdated updatedEvent(Instant now) {
-        DesiredState desired = desiredState();
-        return ApiKeyUpdated.builder()
+    private UpdateApiKeyProjectionCommand updatedEvent(Instant now) {
+        return updatedEvent(now, desiredState());
+    }
+
+    private UpdateApiKeyProjectionCommand updatedEvent(Instant now, DesiredState desired) {
+        return UpdateApiKeyProjectionCommand.builder()
                 .apiKeyName(desired.apiKeyName())
                 .apiKeyId(apiKeyId)
                 .version(revision)
@@ -290,9 +332,12 @@ public class ApiKey {
                 .build();
     }
 
-    private ApiKeyDeleted deletedEvent(Instant now) {
-        DesiredState desired = desiredState();
-        return ApiKeyDeleted.builder()
+    private DeleteApiKeyProjectionCommand deletedEvent(Instant now) {
+        return deletedEvent(now, desiredState());
+    }
+
+    private DeleteApiKeyProjectionCommand deletedEvent(Instant now, DesiredState desired) {
+        return DeleteApiKeyProjectionCommand.builder()
                 .apiKeyName(desired.apiKeyName())
                 .apiKeyId(apiKeyId)
                 .version(revision)
@@ -314,7 +359,7 @@ public class ApiKey {
             case ACTIVE -> {
             }
             case PROVISIONING ->
-                    throw new ApiKeyNotFoundException("Can't " + action + " an API key with pending creation");
+                    throw new ApiKeyUpdateFailure("Can't " + action + " an API key with pending creation");
             case PROVISIONING_FAILED ->
                     throw new ApiKeyUpdateFailure("Can't " + action + " an API key whose creation failed; dismiss it first");
             case CHANGE_PENDING ->
