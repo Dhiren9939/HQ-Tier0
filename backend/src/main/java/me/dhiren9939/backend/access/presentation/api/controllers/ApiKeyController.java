@@ -103,7 +103,7 @@ class ApiKeyController {
                 .permissions(toResponseMap(key.permissions()))
                 .createdAt(key.createdAt())
                 .expiresAt(key.expiresAt())
-                .updateStatus(key.updateStatus())
+                .state(key.state())
                 .build();
     }
 
@@ -115,7 +115,7 @@ class ApiKeyController {
                 .permissions(toResponseMap(key.permissions()))
                 .createdAt(key.createdAt())
                 .expiresAt(key.expiresAt())
-                .updateStatus(key.updateStatus())
+                .state(key.state())
                 .build();
     }
 }

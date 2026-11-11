@@ -141,7 +141,7 @@ States are derived from the confirmed state and the pending change; they are not
 | schema `api_key`, tables `api_keys`, `api_key_next`, `outbox` | schema `access`, tables `api_keys`, `pending_changes`, `outbox` |
 | Delivery Service (other context) | Dispatcher |
 
-Responses carry `updateStatus` (`PENDING` or `FAILED`, absent when no change is pending or failed). The derived `ApiKeyState` stays internal to the application; it is not in the HTTP response. Note a confirmed delete (tombstone) therefore looks like an active key in the response, since both have no pending change.
+Responses carry one status field, `state`: `PROVISIONING`, `PROVISIONING_FAILED`, `ACTIVE`, `CHANGE_PENDING`, `CHANGE_FAILED` or `DELETED` (a confirmed delete shows as `DELETED` until dismissed). Nothing else about a change is exposed: no revisions, failure reasons, kinds, pending-change data, version counters or secret hashes.
 
 ## Package structure
 

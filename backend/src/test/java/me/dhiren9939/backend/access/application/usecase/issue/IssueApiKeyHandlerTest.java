@@ -5,7 +5,6 @@ import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
 
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +35,6 @@ class IssueApiKeyHandlerTest {
         assertThat(result.accessSecret()).isEqualTo("secret_raw");
         assertThat(result.key().accessId()).isEqualTo("V1_acc");
         assertThat(result.key().state()).isEqualTo(ApiKeyState.PROVISIONING);
-        assertThat(result.key().updateStatus()).isEqualTo(ChangeStatus.PENDING);
         assertThat(result.key().createdAt()).isEqualTo(NOW);
         assertThat(result.key().expiresAt()).isEqualTo(ONE_MONTH_FROM_NOW);
 

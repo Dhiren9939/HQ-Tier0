@@ -7,7 +7,6 @@ import me.dhiren9939.backend.access.application.model.ApiKeyView;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +44,6 @@ class GetApiKeyHandlerTest {
         assertThat(view.createdAt()).isEqualTo(NOW);
         assertThat(view.expiresAt()).isEqualTo(ONE_MONTH_FROM_NOW);
         assertThat(view.state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(view.updateStatus()).isNull();
     }
 
     @Test
@@ -55,14 +53,12 @@ class GetApiKeyHandlerTest {
         ApiKeyView view = get(USER_ID, key);
 
         assertThat(view.state()).isEqualTo(ApiKeyState.PROVISIONING);
-        assertThat(view.updateStatus()).isEqualTo(ChangeStatus.PENDING);
     }
 
     @Test
     void failedCreationAndFailedChangeShowTheirState() {
         ApiKey failedCreation = apiKeys.existing(provisioningFailed());
         assertThat(get(USER_ID, failedCreation).state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
-        assertThat(get(USER_ID, failedCreation).updateStatus()).isEqualTo(ChangeStatus.FAILED);
 
         ApiKey failedChange = apiKeys.existing(changeFailed());
         assertThat(get(USER_ID, failedChange).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);

@@ -53,8 +53,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessSecret").isNotEmpty())
                 .andExpect(jsonPath("$.accessId").value(org.hamcrest.Matchers.startsWith("V1_")))
-                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
-                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
+                .andExpect(jsonPath("$.state").value("PROVISIONING"))
                 .andExpect(jsonPath("$.permissions.INGESTION").value("WRITE"))
                 .andExpect(jsonPath("$.permissions.TENANT").value("NONE"))
                 .andExpect(jsonPath("$.permissions.CHANNEL").value("NONE"))
@@ -65,18 +64,17 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
 
         send(get(key)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessSecret").doesNotExist())
-                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
+                .andExpect(jsonPath("$.state").value("PROVISIONING"))
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
         json(post(internal + "1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
         send(get(key)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.updateStatus").doesNotExist())
-                .andExpect(jsonPath("$.updateStatus").doesNotExist());
+                .andExpect(jsonPath("$.state").value("ACTIVE"));
 
         json(patch(key), """
                 {"name":"renamed","permissions":{"TENANT":"READ"}}""")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.updateStatus").value("PENDING"))
+                .andExpect(jsonPath("$.state").value("CHANGE_PENDING"))
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
         json(patch(key), "{\"name\":\"again\"}").andExpect(status().isConflict());
@@ -84,19 +82,19 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         send(delete(key)).andExpect(status().isConflict());
 
         json(post(internal + "2/reject"), "{\"issuer\":\"data-plane\",\"reason\":\"CONFIRM_TIMEOUT\"}").andExpect(status().isNoContent());
-        send(get(key)).andExpect(jsonPath("$.updateStatus").value("FAILED"))
-                .andExpect(jsonPath("$.updateStatus").value("FAILED"));
+        send(get(key)).andExpect(jsonPath("$.state").value("CHANGE_FAILED"))
+                .andExpect(jsonPath("$.failureReason").doesNotExist());
         assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
                 .isEqualTo("CONFIRM_TIMEOUT");
 
         send(post(key + "/dismiss")).andExpect(status().isNoContent());
-        send(get(key)).andExpect(jsonPath("$.updateStatus").doesNotExist())
+        send(get(key)).andExpect(jsonPath("$.state").value("ACTIVE"))
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
         json(patch(key), "{\"name\":\"renamed\",\"expiry\":\"ONE_MONTH\"}").andExpect(status().isOk());
         json(post(internal + "4/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
         send(get(key)).andExpect(jsonPath("$.apiKeyName").value("renamed"))
-                .andExpect(jsonPath("$.updateStatus").doesNotExist());
+                .andExpect(jsonPath("$.state").value("ACTIVE"));
 
         send(delete(key)).andExpect(status().isNoContent());
         json(post(internal + "5/reject"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent()); // no reason given -> REJECTED
@@ -106,7 +104,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
 
         send(delete(key)).andExpect(status().isNoContent());
         json(post(internal + "7/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
-        send(get(key)).andExpect(status().isOk()).andExpect(jsonPath("$.updateStatus").doesNotExist());
+        send(get(key)).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("DELETED"));
         json(patch(key), "{\"name\":\"zombie\"}").andExpect(status().isConflict());
 
         int events = outbox().size();

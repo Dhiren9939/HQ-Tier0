@@ -10,7 +10,6 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;

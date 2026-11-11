@@ -28,7 +28,7 @@
                   "pm.collectionVariables.set('revision', '1');",
                   "pm.test('secret is returned once, creation is PENDING', () => {",
                   "  pm.expect(body.accessSecret).to.be.a('string');",
-                  "  pm.expect(body.updateStatus).to.eql('PENDING');",
+                  "  pm.expect(body.state).to.eql('PROVISIONING');",
                   "});"
                 ]
               }
@@ -54,9 +54,9 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.test('updateStatus is present only while a change is pending or failed, and every scope is listed', () => {",
+                  "pm.test('state is one of the public states, and every scope is listed', () => {",
                   "  const b = pm.response.json();",
-                  "  pm.expect(b.updateStatus === undefined || ['PENDING', 'FAILED'].includes(b.updateStatus)).to.be.true;",
+                  "  pm.expect(['PROVISIONING', 'PROVISIONING_FAILED', 'ACTIVE', 'CHANGE_PENDING', 'CHANGE_FAILED', 'DELETED'].includes(b.state)).to.be.true;",
                   "  pm.expect(Object.keys(b.permissions)).to.have.members(['INGESTION', 'TENANT', 'CHANNEL']);",
                   "});"
                 ]
@@ -78,7 +78,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.test('change is pending', () => pm.expect(pm.response.json().updateStatus).to.eql('PENDING'));",
+                  "pm.test('change is pending', () => pm.expect(pm.response.json().state).to.eql('CHANGE_PENDING'));",
                   "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
                 ]
               }

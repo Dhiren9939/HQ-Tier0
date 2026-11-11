@@ -13,7 +13,6 @@ import me.dhiren9939.backend.access.application.usecase.verify.VerifyApiKeyQuery
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
@@ -53,7 +52,6 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
         assertThat(issued.accessSecret()).isNotBlank();
         assertThat(key.state()).isEqualTo(ApiKeyState.PROVISIONING);
-        assertThat(key.updateStatus()).isEqualTo(ChangeStatus.PENDING);
 
         ApiKeyView read = view(owner, key.apiKeyId());
         assertThat(read.state()).isEqualTo(ApiKeyState.PROVISIONING);
@@ -126,7 +124,6 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
         ApiKeyView key = view(owner, issued.key().apiKeyId());
         assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(key.updateStatus()).isNull();
         assertThat(key.permissions()).isEqualTo(ingestionWrite().with(Scope.TENANT, AccessLevel.READ));
         assertThat(count("access.pending_changes")).isZero();
         assertThat(count("access.pending_change_permissions")).isZero();
@@ -180,7 +177,6 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
                 new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ))));
 
         assertThat(pending.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
-        assertThat(pending.updateStatus()).isEqualTo(ChangeStatus.PENDING);
         assertThat(pending.apiKeyName()).as("confirmed name until confirm").isEqualTo("old");
         assertThat(pending.permissions()).isEqualTo(ingestionWrite());
 
@@ -295,7 +291,6 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(compensation.apiKeyName()).as("restates the confirmed name").isEqualTo("keep");
         ApiKeyView failed = view(owner, id);
         assertThat(failed.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
-        assertThat(failed.updateStatus()).isEqualTo(ChangeStatus.FAILED);
         assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
                 .isEqualTo("CONFIRM_TIMEOUT");
         assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "again", null, null)))
