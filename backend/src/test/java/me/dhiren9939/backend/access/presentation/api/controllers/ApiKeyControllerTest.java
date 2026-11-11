@@ -20,6 +20,7 @@ import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyComma
 import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyUseCase;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
@@ -46,7 +47,7 @@ class ApiKeyControllerTest {
     private static final UUID KEY_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final Permissions NO_PERMISSIONS = Permissions.none();
     private static final ApiKeyView VIEW = new ApiKeyView(KEY_ID, USER_ID, "V1_acc", "test-key", NO_PERMISSIONS,
-            Instant.parse("2026-01-15T12:00:00Z"), null, ApiKeyState.PROVISIONING);
+            Instant.parse("2026-01-15T12:00:00Z"), null, ApiKeyState.PROVISIONING, ChangeKind.CREATE);
 
     private final List<Object> received = new ArrayList<>();
     private RuntimeException failure;
@@ -88,7 +89,7 @@ class ApiKeyControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessSecret").value("the-secret"))
                 .andExpect(jsonPath("$.accessId").value("V1_acc"))
-                .andExpect(jsonPath("$.state").value("PROVISIONING"))
+                .andExpect(jsonPath("$.status").value("CREATING"))
                 .andExpect(jsonPath("$.revision").doesNotExist());
 
         IssueApiKeyCommand command = (IssueApiKeyCommand) received.getFirst();
@@ -156,7 +157,7 @@ class ApiKeyControllerTest {
         mvc.perform(get("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.apiKeyId").value(KEY_ID.toString()))
-                .andExpect(jsonPath("$.state").value("PROVISIONING"))
+                .andExpect(jsonPath("$.status").value("CREATING"))
                 .andExpect(jsonPath("$.userId").doesNotExist())
                 .andExpect(jsonPath("$.revision").doesNotExist())
                 .andExpect(jsonPath("$.lockVersion").doesNotExist())

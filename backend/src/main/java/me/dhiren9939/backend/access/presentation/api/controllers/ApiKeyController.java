@@ -1,5 +1,6 @@
 package me.dhiren9939.backend.access.presentation.api.controllers;
 
+import me.dhiren9939.backend.access.presentation.api.dtos.ApiKeyStatus;
 import me.dhiren9939.backend.access.presentation.api.dtos.CreateRequestDto;
 import me.dhiren9939.backend.access.presentation.api.dtos.CreateResponseDto;
 import me.dhiren9939.backend.access.presentation.api.dtos.GetResponseDto;
@@ -103,7 +104,7 @@ class ApiKeyController {
                 .permissions(toResponseMap(key.permissions()))
                 .createdAt(key.createdAt())
                 .expiresAt(key.expiresAt())
-                .state(key.state())
+                .status(ApiKeyStatus.of(key.state(), key.changeKind()))
                 .build();
     }
 
@@ -115,7 +116,7 @@ class ApiKeyController {
                 .permissions(toResponseMap(key.permissions()))
                 .createdAt(key.createdAt())
                 .expiresAt(key.expiresAt())
-                .state(key.state())
+                .status(ApiKeyStatus.of(key.state(), key.changeKind()))
                 .build();
     }
 }

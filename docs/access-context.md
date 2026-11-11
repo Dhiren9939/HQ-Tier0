@@ -141,7 +141,7 @@ States are derived from the confirmed state and the pending change; they are not
 | schema `api_key`, tables `api_keys`, `api_key_next`, `outbox` | schema `access`, tables `api_keys`, `pending_changes`, `outbox` |
 | Delivery Service (other context) | Dispatcher |
 
-Responses carry one status field, `state`: `PROVISIONING`, `PROVISIONING_FAILED`, `ACTIVE`, `CHANGE_PENDING`, `CHANGE_FAILED` or `DELETED` (a confirmed delete shows as `DELETED` until dismissed). Nothing else about a change is exposed: no revisions, failure reasons, kinds, pending-change data, version counters or secret hashes.
+Responses carry one status field, `status`, a presentation enum (`ApiKeyStatus`) derived from the internal `ApiKeyState` and the kind of the unsettled change: `CREATING`, `CREATION_FAILED`, `ACTIVE`, `UPDATING`, `UPDATE_FAILED`, `DELETING`, `DELETE_FAILED` or `DELETED` (a confirmed delete shows as `DELETED` until dismissed). It says what is happening and whether it failed, never why: no revisions, failure reasons, pending-change data, version counters or secret hashes are exposed, and the internal states can change without breaking clients.
 
 ## Package structure
 
