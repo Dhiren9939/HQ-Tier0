@@ -194,15 +194,15 @@ class ApiKeyControllerTest {
     void theDataPlaneAnswersCarryTheRevisionAndRejectDefaultsToRejected() throws Exception {
         mvc.perform(post("/internal/apikey/{id}/changes/{revision}/confirm", KEY_ID, 3)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"serviceId\":\"data-plane\"}"))
+                        .content("{\"issuer\":\"data-plane\"}"))
                 .andExpect(status().isNoContent());
         mvc.perform(post("/internal/apikey/{id}/changes/{revision}/reject", KEY_ID, 3)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"serviceId\":\"data-plane\"}"))
+                        .content("{\"issuer\":\"data-plane\"}"))
                 .andExpect(status().isNoContent());
         mvc.perform(post("/internal/apikey/{id}/changes/{revision}/reject", KEY_ID, 4)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"serviceId\":\"data-plane\",\"reason\":\"CONFIRM_TIMEOUT\"}"))
+                        .content("{\"issuer\":\"data-plane\",\"reason\":\"CONFIRM_TIMEOUT\"}"))
                 .andExpect(status().isNoContent());
         assertThat(received).containsExactly(
                 new ApiKeyChangeConfirmed(KEY_ID, 3, "data-plane"),
@@ -217,7 +217,7 @@ class ApiKeyControllerTest {
                     .andExpect(status().isBadRequest());
             mvc.perform(post("/internal/apikey/{id}/changes/{revision}/" + answer, KEY_ID, 3)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"serviceId\":\" \"}"))
+                            .content("{\"issuer\":\" \"}"))
                     .andExpect(status().isBadRequest());
         }
 

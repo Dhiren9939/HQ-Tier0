@@ -68,7 +68,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
                 .andExpect(jsonPath("$.updateStatus").value("PENDING"))
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
-        json(post(internal + "1/confirm"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isNoContent());
+        json(post(internal + "1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
         send(get(key)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.updateStatus").doesNotExist())
                 .andExpect(jsonPath("$.updateStatus").doesNotExist());
@@ -80,10 +80,10 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
         json(patch(key), "{\"name\":\"again\"}").andExpect(status().isConflict());
-        json(post(internal + "1/confirm"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isConflict());
+        json(post(internal + "1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isConflict());
         send(delete(key)).andExpect(status().isConflict());
 
-        json(post(internal + "2/reject"), "{\"serviceId\":\"data-plane\",\"reason\":\"CONFIRM_TIMEOUT\"}").andExpect(status().isNoContent());
+        json(post(internal + "2/reject"), "{\"issuer\":\"data-plane\",\"reason\":\"CONFIRM_TIMEOUT\"}").andExpect(status().isNoContent());
         send(get(key)).andExpect(jsonPath("$.updateStatus").value("FAILED"))
                 .andExpect(jsonPath("$.updateStatus").value("FAILED"));
         assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
@@ -94,18 +94,18 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
 
         json(patch(key), "{\"name\":\"renamed\",\"expiry\":\"ONE_MONTH\"}").andExpect(status().isOk());
-        json(post(internal + "4/confirm"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isNoContent());
+        json(post(internal + "4/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
         send(get(key)).andExpect(jsonPath("$.apiKeyName").value("renamed"))
                 .andExpect(jsonPath("$.updateStatus").doesNotExist());
 
         send(delete(key)).andExpect(status().isNoContent());
-        json(post(internal + "5/reject"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isNoContent()); // no reason given -> REJECTED
+        json(post(internal + "5/reject"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent()); // no reason given -> REJECTED
         assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
                 .isEqualTo("REJECTED");
         send(post(key + "/dismiss")).andExpect(status().isNoContent());
 
         send(delete(key)).andExpect(status().isNoContent());
-        json(post(internal + "7/confirm"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isNoContent());
+        json(post(internal + "7/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
         send(get(key)).andExpect(status().isOk()).andExpect(jsonPath("$.updateStatus").doesNotExist());
         json(patch(key), "{\"name\":\"zombie\"}").andExpect(status().isConflict());
 
@@ -128,8 +128,8 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         send(get("/api/v1/user/" + stranger + "/apikey/" + id)).andExpect(status().isNotFound());
         json(patch("/api/v1/user/" + stranger + "/apikey/" + id), "{\"name\":\"x\"}").andExpect(status().isNotFound());
         send(delete("/api/v1/user/" + stranger + "/apikey/" + id)).andExpect(status().isNotFound());
-        json(post("/internal/apikey/" + UUID.randomUUID() + "/changes/1/confirm"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isNotFound());
-        json(post("/internal/apikey/" + UUID.randomUUID() + "/changes/1/reject"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isNotFound());
+        json(post("/internal/apikey/" + UUID.randomUUID() + "/changes/1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNotFound());
+        json(post("/internal/apikey/" + UUID.randomUUID() + "/changes/1/reject"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNotFound());
     }
 
     @Test
@@ -157,7 +157,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         json(post(keys()), "{not json").andExpect(status().isBadRequest());
 
         UUID id = create("{\"name\":\"k\",\"expiry\":\"NEVER\"}");
-        json(post("/internal/apikey/" + id + "/changes/1/confirm"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isNoContent());
+        json(post("/internal/apikey/" + id + "/changes/1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
         json(patch(keys() + "/" + id), "{\"permissions\":{\"INGESTION\":\"READ_WRITE\"}}")
                 .andExpect(status().isBadRequest());
         json(patch(keys() + "/" + id), "{\"name\":\"\"}").andExpect(status().isBadRequest());
@@ -187,7 +187,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
 
         send(get("/test-probe/verify").param("accessId", accessId).param("secret", secret))
                 .andExpect(status().isUnauthorized()); // still provisioning
-        json(post("/internal/apikey/" + id + "/changes/1/confirm"), "{\"serviceId\":\"data-plane\"}").andExpect(status().isNoContent());
+        json(post("/internal/apikey/" + id + "/changes/1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
 
         send(get("/test-probe/verify").param("accessId", accessId).param("secret", secret))
                 .andExpect(status().isOk())

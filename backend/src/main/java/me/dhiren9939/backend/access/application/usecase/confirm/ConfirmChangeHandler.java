@@ -26,7 +26,7 @@ class ConfirmChangeHandler implements ConfirmChangeUseCase {
             ApiKey key = apiKeys.require(command.apiKeyId());
             key.confirm(command.version(), clock.instant());
             apiKeys.save(key);
-            log.info("API key {} change at revision {} confirmed by {}", command.apiKeyId(), command.version(), command.serviceId());
+            log.info("API key {} change at revision {} confirmed by {}", command.apiKeyId(), command.version(), command.issuer());
         });
     }
 }

@@ -194,7 +194,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{baseUrl}}/internal/apikey/{{apiKeyId}}/changes/{{revision}}/confirm",
-            "body": { "mode": "raw", "raw": "{\n  \"serviceId\": \"data-plane\"\n}" },
+            "body": { "mode": "raw", "raw": "{\n  \"issuer\": \"data-plane\"\n}" },
             "description": "The data plane confirms the pending revision. 409 if that revision is not the pending one (stale, or the change already failed)."
           }
         },
@@ -216,8 +216,8 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{baseUrl}}/internal/apikey/{{apiKeyId}}/changes/{{revision}}/reject",
-            "body": { "mode": "raw", "raw": "{\n  \"serviceId\": \"data-plane\",\n  \"reason\": \"REJECTED\"\n}" },
-            "description": "serviceId (required) names the answering service. reason: REJECTED (default when omitted), CONFIRM_TIMEOUT, OUTBOX_PUBLISH_FAILURE or CANCELLED_BY_USER. The compensating command takes the next revision, which the test script adds to `revision`."
+            "body": { "mode": "raw", "raw": "{\n  \"issuer\": \"data-plane\",\n  \"reason\": \"REJECTED\"\n}" },
+            "description": "issuer (required) names the answering downstream service, like a JWT iss. reason: REJECTED (default when omitted), CONFIRM_TIMEOUT, OUTBOX_PUBLISH_FAILURE or CANCELLED_BY_USER. The compensating command takes the next revision, which the test script adds to `revision`."
           }
         }
       ]

@@ -26,7 +26,7 @@ class RejectChangeHandler implements RejectChangeUseCase {
             ApiKey key = apiKeys.require(command.apiKeyId());
             key.reject(command.version(), command.failureReason(), clock.instant());
             apiKeys.save(key);
-            log.info("API key {} change at revision {} rejected by {}", command.apiKeyId(), command.version(), command.serviceId());
+            log.info("API key {} change at revision {} rejected by {}", command.apiKeyId(), command.version(), command.issuer());
         });
     }
 }

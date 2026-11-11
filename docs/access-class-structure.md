@@ -235,13 +235,13 @@ classDiagram
         <<record, incoming>>
         apiKeyId
         version
-        serviceId
+        issuer
     }
     class ApiKeyChangeRejected {
         <<record, incoming>>
         apiKeyId
         version
-        serviceId
+        issuer
         failureReason
     }
     class CreateApiKeyProjectionCommand {
@@ -368,8 +368,8 @@ Inputs and outputs of each use case (all records, each in its own `usecase/<name
 | `DeleteApiKeyUseCase` | `DeleteApiKeyCommand(userId, apiKeyId)` | nothing |
 | `DismissApiKeyUseCase` | `DismissApiKeyCommand(userId, apiKeyId)` | nothing |
 | `CancelApiKeyChangeUseCase` | `CancelApiKeyChangeCommand(userId, apiKeyId)` | nothing |
-| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version, serviceId)` | nothing |
-| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, serviceId, failureReason)` | nothing |
+| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version, issuer)` | nothing |
+| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, issuer, failureReason)` | nothing |
 | `VerifyApiKeyUseCase` | `VerifyApiKeyQuery(accessId, accessSecret)` | `VerifiedApiKey` |
 
 Notes: `GetApiKeyHandler` and `VerifyApiKeyHandler` run in read-only transactions and `IssueApiKeyHandler` is

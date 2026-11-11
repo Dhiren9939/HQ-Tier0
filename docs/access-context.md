@@ -42,7 +42,7 @@ Ubiquitous language and rules of the Access context (supporting subdomain, contr
 | **Confirm / Reject** | Data plane's answer for a specific revision. Confirm applies the change; reject marks it failed. |
 | **Dismiss** | The owner acknowledges that they understand the state of their key: it clears a failed change, or removes a key that is finished (`PROVISIONING_FAILED`, `DELETED`). It never emits anything; compensating commands go out when the change fails. Replaces user-facing "acknowledgeFailure". Nothing disappears without a dismiss. |
 | **Cancel** | The owner withdraws a change that is still pending. It fails with `CANCELLED_BY_USER` and is compensated at once, like any failure. |
-| **Incoming events** | What the data plane sends back, as plain records in `shared/access/events/inbound`: `ApiKeyChangeConfirmed(apiKeyId, version, serviceId)` (it applied that revision) and `ApiKeyChangeRejected(apiKeyId, version, serviceId, failureReason)` (that revision failed). They are the inputs of `ConfirmChangeUseCase` and `RejectChangeUseCase`; the internal HTTP controller builds them from the path and body. `serviceId` names the downstream service that answered; it is validated (required, non-blank) and logged, not persisted. Access does not emit them and writes nothing to the outbox for them. A reject does emit the compensating projection command. |
+| **Incoming events** | What the data plane sends back, as plain records in `shared/access/events/inbound`: `ApiKeyChangeConfirmed(apiKeyId, version, issuer)` (it applied that revision) and `ApiKeyChangeRejected(apiKeyId, version, issuer, failureReason)` (that revision failed). They are the inputs of `ConfirmChangeUseCase` and `RejectChangeUseCase`; the internal HTTP controller builds them from the path and body. `issuer` is a string naming the downstream service that answered, like the `iss` claim of a JWT. It is validated (required, non-blank) and logged, not persisted. With more than one downstream service, the confirm and reject use cases are where "every issuer has answered" would be enforced. Access does not emit them and writes nothing to the outbox for them. A reject does emit the compensating projection command. |
 | **Compensating command** | Emitted the moment a change fails, at the next revision, because the data plane may have applied it anyway: failed create -> `DeleteApiKeyProjectionCommand`; failed update -> `UpdateApiKeyProjectionCommand` restating the confirmed state; failed delete -> `CreateApiKeyProjectionCommand` restoring the key (it carries the secret hash, so it also works when the key is gone downstream). |
 | **Deleted (tombstone)** | A confirmed delete. The key stays visible, cannot authenticate, and accepts no changes until the owner dismisses it. |
 | **Failure Reason** | Exactly four: `REJECTED` (data plane nack), `CONFIRM_TIMEOUT` (no confirm/reject in time), `OUTBOX_PUBLISH_FAILURE`, `CANCELLED_BY_USER`. |
@@ -137,7 +137,7 @@ States are derived from the confirmed state and the pending change; they are not
 | `ApiKeyController` / `ApiKeyInternalController` in `web` | `presentation.api.controllers`, depend on the use cases only; DTOs in `presentation.api.dtos` |
 | `ApiKeyFacadeImpl` | `presentation.facade.ApiKeyFacadeImpl`, calls `VerifyApiKeyUseCase` |
 | `acknowledgeFailure` (user-facing) | Dismiss: `POST /api/v1/user/{userId}/apikey/{apiKeyId}/dismiss`; new: Cancel `POST /api/v1/user/{userId}/apikey/{apiKeyId}/cancel` |
-| six `/internal/apikey/{id}/{creation,update,deletion}/{success,failure}` endpoints | `POST /internal/apikey/{id}/changes/{revision}/confirm` and `/reject` (required body `{"serviceId": "..."}`; reject also takes an optional `"reason"`, default `REJECTED`; `serviceId` names the downstream service answering and is logged, not stored) |
+| six `/internal/apikey/{id}/{creation,update,deletion}/{success,failure}` endpoints | `POST /internal/apikey/{id}/changes/{revision}/confirm` and `/reject` (required body `{"issuer": "..."}`; reject also takes an optional `"reason"`, default `REJECTED`; `issuer` names the downstream service answering, like a JWT `iss`; it is logged, not stored, so a second downstream service can later be required to answer too) (a Postman test harness; in production these are service-to-service messages calling the same use cases) |
 | schema `api_key`, tables `api_keys`, `api_key_next`, `outbox` | schema `access`, tables `api_keys`, `pending_changes`, `outbox` |
 | Delivery Service (other context) | Dispatcher |
 
@@ -206,8 +206,8 @@ Each is a use case interface in its own package `application.usecase.<name>` wit
 | `DeleteApiKeyUseCase` | `DeleteApiKeyCommand(userId, apiKeyId)` | none |
 | `DismissApiKeyUseCase` | `DismissApiKeyCommand(userId, apiKeyId)` | none |
 | `CancelApiKeyChangeUseCase` | `CancelApiKeyChangeCommand(userId, apiKeyId)` | none |
-| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version, serviceId)` | none |
-| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, serviceId, failureReason)` | none |
+| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version, issuer)` | none |
+| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, issuer, failureReason)` | none |
 | `VerifyApiKeyUseCase` | `VerifyApiKeyQuery(accessId, accessSecret)` | `VerifiedApiKey` |
 
 Output abstractions: `ApiKeys` (in `domain.repositories`: load and store aggregates), `IssueCredentialPort` (new credential in the current key format), `CredentialVerifier` (secret vs stored hash, per key format); both of these are in `application.interfaces`.

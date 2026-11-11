@@ -16,9 +16,11 @@ import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
 /**
- * Internal HTTP endpoints for the data plane's answer to a pending change. The caller names the
- * revision it is answering for and identifies itself with a {@code serviceId}. These are not user-facing and should be secured at the
- * network/gateway level.
+ * Test harness for the data plane's answer to a pending change. Confirm and reject are service-to-service
+ * messages, never user actions; the use cases ({@code ConfirmChangeUseCase}, {@code RejectChangeUseCase}) are the
+ * real interface and a message consumer will call them later. These HTTP endpoints exist so the answers can be
+ * sent from Postman, and should be removed or locked down to the network/gateway level once that consumer exists.
+ * The caller names the revision it is answering for and identifies itself with an {@code issuer}.
  */
 @RestController
 @RequestMapping("/internal/apikey/{apiKeyId}/changes/{revision}")
@@ -31,7 +33,7 @@ class ApiKeyInternalController {
     @PostMapping("/confirm")
     public ResponseEntity<Void> confirm(@PathVariable UUID apiKeyId, @PathVariable long revision,
                                         @Valid @RequestBody ConfirmRequestDto request) {
-        confirmChange.handle(new ApiKeyChangeConfirmed(apiKeyId, revision, request.serviceId()));
+        confirmChange.handle(new ApiKeyChangeConfirmed(apiKeyId, revision, request.issuer()));
         return ResponseEntity.noContent().build();
     }
 
@@ -41,7 +43,7 @@ class ApiKeyInternalController {
         FailureReason reason = request.reason() == null
                 ? FailureReason.REJECTED
                 : request.reason();
-        rejectChange.handle(new ApiKeyChangeRejected(apiKeyId, revision, request.serviceId(), reason));
+        rejectChange.handle(new ApiKeyChangeRejected(apiKeyId, revision, request.issuer(), reason));
         return ResponseEntity.noContent().build();
     }
 }
