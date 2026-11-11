@@ -12,7 +12,8 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
- * The dependency rule of the Access module, enforced: adapter -> application -> domain.
+ * The dependency rule of the Access module, enforced: presentation and infrastructure -> application -> domain.
+ * Presentation (web, facade) and infrastructure (persistence, key formats, wiring) never know each other.
  * The domain may use {@code jakarta.persistence} (aggregates are rich JPA entities) and nothing else
  * from a framework.
  */
@@ -21,8 +22,8 @@ class ArchitectureTest {
     private static final String ROOT = "me.dhiren9939.backend";
     private static final String DOMAIN = ROOT + ".access.domain..";
     private static final String APPLICATION = ROOT + ".access.application..";
-    private static final String ADAPTER = ROOT + ".access.adapter..";
-    private static final String CONFIG = ROOT + ".access.config..";
+    private static final String PRESENTATION = ROOT + ".access.presentation..";
+    private static final String INFRASTRUCTURE = ROOT + ".access.infrastructure..";
     private static final String SHARED = ROOT + ".shared..";
 
     private static JavaClasses mainClasses;
@@ -61,35 +62,49 @@ class ArchitectureTest {
     }
 
     @Test
-    void theApplicationNeverDependsOnAdapters() {
+    void theApplicationNeverDependsOnPresentationOrInfrastructure() {
         ArchRule rule = classes().that().resideInAPackage(APPLICATION)
-                .should().onlyDependOnClassesThat().resideOutsideOfPackages(ADAPTER, CONFIG);
+                .should().onlyDependOnClassesThat().resideOutsideOfPackages(PRESENTATION, INFRASTRUCTURE);
         rule.check(mainClasses);
     }
 
     @Test
-    void inboundPortsAreOnlyImplementedByUseCases() {
+    void theLayersOnlyPointInwards() {
+        ArchRule rule = com.tngtech.archunit.library.Architectures.layeredArchitecture().consideringOnlyDependenciesInLayers()
+                .layer("Presentation").definedBy(PRESENTATION)
+                .layer("Infrastructure").definedBy(INFRASTRUCTURE)
+                .layer("Application").definedBy(APPLICATION)
+                .layer("Domain").definedBy(DOMAIN)
+                .whereLayer("Presentation").mayNotBeAccessedByAnyLayer()
+                .whereLayer("Infrastructure").mayNotBeAccessedByAnyLayer()
+                .whereLayer("Application").mayOnlyBeAccessedByLayers("Presentation", "Infrastructure")
+                .whereLayer("Domain").mayOnlyBeAccessedByLayers("Application", "Presentation", "Infrastructure");
+        rule.check(mainClasses);
+    }
+
+    @Test
+    void useCaseInterfacesAreOnlyImplementedByHandlers() {
         ArchRule rule = classes().that().implement(
-                        com.tngtech.archunit.base.DescribedPredicate.describe("an input port",
-                                c -> c.getPackageName().endsWith("application.port.in") && c.isInterface()))
-                .should().resideInAPackage(ROOT + ".access.application.usecase");
+                        com.tngtech.archunit.base.DescribedPredicate.describe("a use case interface",
+                                c -> c.getPackageName().contains("application.usecase") && c.isInterface()))
+                .should().resideInAPackage(ROOT + ".access.application.usecase..");
         rule.check(mainClasses);
     }
 
     @Test
-    void controllersTalkToInputPortsNotToPersistenceOrUseCaseImplementations() {
-        ArchRule rule = classes().that().resideInAPackage(ROOT + ".access.adapter.in..")
+    void presentationTalksToUseCasesNotToRepositoriesCredentialsOrInfrastructure() {
+        ArchRule rule = classes().that().resideInAPackage(PRESENTATION)
                 .should().onlyDependOnClassesThat().resideOutsideOfPackages(
-                        ROOT + ".access.adapter.out..", ROOT + ".access.application.usecase..",
-                        ROOT + ".access.application.port.out..");
+                        INFRASTRUCTURE, ROOT + ".access.domain.repositories..",
+                        ROOT + ".access.application.interfaces..");
         rule.check(mainClasses);
     }
 
     @Test
-    void outputAdaptersNeverReachIntoInputAdapters() {
-        ArchRule rule = classes().that().resideInAPackage(ROOT + ".access.adapter.out..")
+    void infrastructureNeverReachesIntoPresentationOrTheUseCaseHandlers() {
+        ArchRule rule = classes().that().resideInAPackage(INFRASTRUCTURE)
                 .should().onlyDependOnClassesThat().resideOutsideOfPackages(
-                        ROOT + ".access.adapter.in..", ROOT + ".access.application.usecase..");
+                        PRESENTATION, ROOT + ".access.application.usecase..");
         rule.check(mainClasses);
     }
 
@@ -109,7 +124,7 @@ class ArchitectureTest {
 
     @Test
     void useCaseHandlersAreHiddenFromEveryoneButSpring() {
-        ArchRule rule = classes().that().resideInAPackage(ROOT + ".access.application.usecase")
+        ArchRule rule = classes().that().resideInAPackage(ROOT + ".access.application.usecase..")
                 .and().haveSimpleNameEndingWith("Handler")
                 .should().notBePublic();
         rule.check(mainClasses);

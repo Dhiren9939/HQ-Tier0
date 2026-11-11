@@ -1,10 +1,10 @@
 package me.dhiren9939.backend.integration;
 
-import me.dhiren9939.backend.access.application.port.in.ApiKeyView;
-import me.dhiren9939.backend.access.application.port.in.UpdateApiKeyCommand;
-import me.dhiren9939.backend.access.domain.ApiKeyState;
-import me.dhiren9939.backend.access.domain.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.access.domain.Lifetime;
+import me.dhiren9939.backend.access.application.model.ApiKeyView;
+import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyCommand;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.RepeatedTest;
 

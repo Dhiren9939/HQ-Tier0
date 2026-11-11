@@ -1,22 +1,22 @@
 package me.dhiren9939.backend.integration;
 
-import me.dhiren9939.backend.access.application.port.in.ApiKeyView;
-import me.dhiren9939.backend.access.application.port.in.ConfirmChangeCommand;
-import me.dhiren9939.backend.access.application.port.in.DeleteApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.CancelApiKeyChangeCommand;
-import me.dhiren9939.backend.access.application.port.in.DismissApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.IssuedApiKeyResult;
-import me.dhiren9939.backend.access.application.port.in.RejectChangeCommand;
-import me.dhiren9939.backend.access.application.port.in.UpdateApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.VerifiedApiKey;
-import me.dhiren9939.backend.access.application.port.in.VerifyApiKeyQuery;
-import me.dhiren9939.backend.access.domain.ApiKeyNotFoundException;
-import me.dhiren9939.backend.access.domain.ApiKeyState;
-import me.dhiren9939.backend.access.domain.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.access.domain.ChangeStatus;
-import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
-import me.dhiren9939.backend.access.domain.Lifetime;
-import me.dhiren9939.backend.access.domain.PermissionChanges;
+import me.dhiren9939.backend.access.application.model.ApiKeyView;
+import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.access.application.usecase.delete.DeleteApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.cancel.CancelApiKeyChangeCommand;
+import me.dhiren9939.backend.access.application.usecase.dismiss.DismissApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.issue.IssuedApiKeyResult;
+import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
+import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.verify.VerifiedApiKey;
+import me.dhiren9939.backend.access.application.usecase.verify.VerifyApiKeyQuery;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
+import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.shared.access.Permissions;
@@ -122,7 +122,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         IssuedApiKeyResult issued = issue(owner, "k", Lifetime.NEVER,
                 ingestionWrite().with(Scope.TENANT, AccessLevel.READ));
 
-        confirmChange.handle(new ConfirmChangeCommand(issued.key().apiKeyId(), 1));
+        confirmChange.handle(new ApiKeyChangeConfirmed(issued.key().apiKeyId(), 1));
 
         ApiKeyView key = view(owner, issued.key().apiKeyId());
         assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
@@ -213,7 +213,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "renamed", Lifetime.ONE_MONTH,
                 new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ_WRITE, Scope.INGESTION, AccessLevel.NONE))));
 
-        confirmChange.handle(new ConfirmChangeCommand(id, 2));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2));
 
         ApiKeyView key = view(owner, id);
         assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
@@ -254,11 +254,11 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
                 .isInstanceOf(ApiKeyUpdateFailure.class);
         assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(owner, id)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> confirmChange.handle(new ConfirmChangeCommand(id, 1)))
+        assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 1)))
                 .as("revision 1 is no longer the pending one").isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> confirmChange.handle(new ConfirmChangeCommand(id, 3)))
+        assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 3)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> rejectChange.handle(new RejectChangeCommand(id, 1, FailureReason.REJECTED)))
+        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, FailureReason.REJECTED)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
 
         assertThat(outbox()).hasSize(events);
@@ -285,7 +285,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "lost", null, null));
         int events = outbox().size();
 
-        rejectChange.handle(new RejectChangeCommand(id, 2, FailureReason.CONFIRM_TIMEOUT));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 2, FailureReason.CONFIRM_TIMEOUT));
 
         List<OutboxRow> afterReject = outbox();
         assertThat(afterReject).hasSize(events + 1);
@@ -334,7 +334,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(accessId, issued.accessSecret())))
                 .as("a pending delete still authenticates until confirmed").isNotNull();
 
-        confirmChange.handle(new ConfirmChangeCommand(id, 2));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2));
 
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.DELETED);
         assertThat(jdbc.queryForObject("select deleted_at is not null from access.api_keys", Boolean.class)).isTrue();
@@ -362,7 +362,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         UUID id = issueActive(owner, "survivor", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
 
-        rejectChange.handle(new RejectChangeCommand(id, 2, FailureReason.REJECTED));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 2, FailureReason.REJECTED));
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
 
         List<OutboxRow> afterReject = outbox();
@@ -394,11 +394,6 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(rows.getLast().eventType()).isEqualTo("apiKey.projection.update");
         assertThat(rows.getLast().version()).isEqualTo(3);
         assertThat(rows.getLast().apiKeyName()).isEqualTo("keep");
-        assertThat(changeEvents()).extracting(e -> e.get("event_type"), e -> e.get("change_version"),
-                        e -> e.get("change_kind"), e -> e.get("failure_reason"))
-                .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple("apiKey.change.confirmed", 1L, "CREATE", null),
-                        org.assertj.core.groups.Tuple.tuple("apiKey.change.rejected", 2L, "UPDATE", "CANCELLED_BY_USER"));
 
         dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
 
@@ -417,7 +412,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     void failedCreation() {
         UUID id = issue(owner, "never", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
 
-        rejectChange.handle(new RejectChangeCommand(id, 1, FailureReason.OUTBOX_PUBLISH_FAILURE));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 1, FailureReason.OUTBOX_PUBLISH_FAILURE));
 
         ApiKeyView failed = view(owner, id);
         assertThat(failed.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);

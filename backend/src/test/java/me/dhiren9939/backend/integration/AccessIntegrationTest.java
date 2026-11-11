@@ -1,20 +1,20 @@
 package me.dhiren9939.backend.integration;
 
-import me.dhiren9939.backend.access.application.port.in.ApiKeyView;
-import me.dhiren9939.backend.access.application.port.in.ConfirmChangeCommand;
-import me.dhiren9939.backend.access.application.port.in.ConfirmChangeUseCase;
-import me.dhiren9939.backend.access.application.port.in.DeleteApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.CancelApiKeyChangeUseCase;
-import me.dhiren9939.backend.access.application.port.in.DismissApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.GetApiKeyQuery;
-import me.dhiren9939.backend.access.application.port.in.GetApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.IssueApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.IssueApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.IssuedApiKeyResult;
-import me.dhiren9939.backend.access.application.port.in.RejectChangeUseCase;
-import me.dhiren9939.backend.access.application.port.in.UpdateApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.VerifyApiKeyUseCase;
-import me.dhiren9939.backend.access.domain.Lifetime;
+import me.dhiren9939.backend.access.application.model.ApiKeyView;
+import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.access.application.usecase.confirm.ConfirmChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.delete.DeleteApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.cancel.CancelApiKeyChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.dismiss.DismissApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.get.GetApiKeyQuery;
+import me.dhiren9939.backend.access.application.usecase.get.GetApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.issue.IssueApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.issue.IssueApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.issue.IssuedApiKeyResult;
+import me.dhiren9939.backend.access.application.usecase.reject.RejectChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.verify.VerifyApiKeyUseCase;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.shared.access.Scope;
@@ -68,7 +68,7 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
     /** Issues a key and has the data plane confirm its creation, so it is ACTIVE. */
     protected IssuedApiKeyResult issueActive(UUID owner, String name, Lifetime lifetime, Permissions permissions) {
         IssuedApiKeyResult issued = issue(owner, name, lifetime, permissions);
-        confirmChange.handle(new ConfirmChangeCommand(issued.key().apiKeyId(), 1));
+        confirmChange.handle(new ApiKeyChangeConfirmed(issued.key().apiKeyId(), 1));
         return issued;
     }
 
@@ -81,19 +81,12 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
         return count == null ? 0 : count;
     }
 
-    /** The projection commands the outbox holds, oldest revision first. Change events are in {@link #changeEvents()}. */
-    protected List<java.util.Map<String, Object>> changeEvents() {
-        return jdbc.queryForList("""
-                select event_type, change_version, change_kind, failure_reason
-                from access.outbox where event_type like 'apiKey.change.%' order by occurred_at, event_id
-                """);
-    }
-
+    /** What the outbox holds, oldest revision first. */
     protected List<OutboxRow> outbox() {
         return jdbc.query("""
                 select event_type, change_version, access_secret_hash, permissions, api_key_name,
                        occurred_at, emitted_at, api_key_id
-                from access.outbox where event_type like 'apiKey.projection.%' order by change_version, event_type
+                from access.outbox order by change_version, event_type
                 """, (rs, i) -> new OutboxRow(
                 rs.getString("event_type"),
                 rs.getLong("change_version"),

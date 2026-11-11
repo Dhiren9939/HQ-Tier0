@@ -1,8 +1,7 @@
 package me.dhiren9939.backend.access.application.usecase;
 
-import me.dhiren9939.backend.access.application.port.out.ApiKeys;
-import me.dhiren9939.backend.access.domain.ApiKey;
-import me.dhiren9939.backend.shared.access.events.domain.ApiKeyEvent;
+import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.shared.access.events.domain.ApiKeyProjectionCommand;
 
 import java.util.ArrayList;
@@ -16,31 +15,28 @@ import java.util.UUID;
  * In-memory stand-in for the {@link ApiKeys} port. Like the real adapter it collects the domain events a key
  * registered whenever it is saved or deleted, so tests can assert on what would reach the outbox.
  */
-class InMemoryApiKeys implements ApiKeys {
+public class InMemoryApiKeys implements ApiKeys {
     private final Map<UUID, ApiKey> store = new LinkedHashMap<>();
-    /** Facts about how changes ended (confirmed, rejected). */
-    final List<ApiKeyEvent> changeEvents = new ArrayList<>();
-    /** The projection commands only, which is what most tests are about. */
-    final List<ApiKeyEvent> publishedEvents = new ArrayList<>();
-    int saves;
-    int deletes;
+    public final List<ApiKeyProjectionCommand> publishedEvents = new ArrayList<>();
+    public int saves;
+    public int deletes;
 
     /** Puts a key into the store as if it had been persisted earlier; its pending events are discarded. */
-    ApiKey existing(ApiKey key) {
+    public ApiKey existing(ApiKey key) {
         key.pullDomainEvents();
         store.put(key.getApiKeyId(), key);
         return key;
     }
 
-    boolean contains(UUID apiKeyId) {
+    public boolean contains(UUID apiKeyId) {
         return store.containsKey(apiKeyId);
     }
 
-    ApiKey stored(UUID apiKeyId) {
+    public ApiKey stored(UUID apiKeyId) {
         return store.get(apiKeyId);
     }
 
-    ApiKey onlyKey() {
+    public ApiKey onlyKey() {
         if (store.size() != 1)
             throw new IllegalStateException("Expected exactly one stored key but found " + store.size());
         return store.values().iterator().next();
@@ -65,12 +61,7 @@ class InMemoryApiKeys implements ApiKeys {
     }
 
     private void record(ApiKey key) {
-        for (ApiKeyEvent event : key.pullDomainEvents()) {
-            if (event instanceof ApiKeyProjectionCommand)
-                publishedEvents.add(event);
-            else
-                changeEvents.add(event);
-        }
+        publishedEvents.addAll(key.pullDomainEvents());
     }
 
     @Override

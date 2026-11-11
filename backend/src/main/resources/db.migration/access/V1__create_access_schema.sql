@@ -57,15 +57,10 @@ CREATE TABLE access.outbox(
     user_id UUID NOT NULL,
     access_id VARCHAR(256) NOT NULL,
     access_secret_hash VARCHAR(256),
-    -- the next three are null on change events (apiKey.change.*) and set on projection commands (apiKey.projection.*)
-    api_key_name VARCHAR(256),
+    api_key_name VARCHAR(256) NOT NULL,
 
     -- JSON object keyed by scope name, e.g. {"INGESTION":"WRITE"}; absent scope = NONE
-    permissions TEXT,
+    permissions TEXT NOT NULL,
 
-    created_at TIMESTAMPTZ,
-
-    -- change events only: CREATE, UPDATE or DELETE, and for a rejected change why it failed
-    change_kind VARCHAR(20),
-    failure_reason VARCHAR(50)
+    created_at TIMESTAMPTZ NOT NULL
 );

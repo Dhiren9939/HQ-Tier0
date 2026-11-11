@@ -1,20 +1,20 @@
 package me.dhiren9939.backend.integration;
 
-import me.dhiren9939.backend.access.application.port.in.ConfirmChangeCommand;
-import me.dhiren9939.backend.access.application.port.in.ConfirmChangeUseCase;
-import me.dhiren9939.backend.access.application.port.in.DeleteApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.DeleteApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.DismissApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.DismissApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.IssueApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.IssueApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.IssuedApiKeyResult;
-import me.dhiren9939.backend.access.application.port.in.UpdateApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.UpdateApiKeyUseCase;
-import me.dhiren9939.backend.access.application.port.in.VerifyApiKeyQuery;
-import me.dhiren9939.backend.access.application.port.in.VerifyApiKeyUseCase;
-import me.dhiren9939.backend.access.domain.Lifetime;
-import me.dhiren9939.backend.access.domain.PermissionChanges;
+import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.access.application.usecase.confirm.ConfirmChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.delete.DeleteApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.delete.DeleteApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.dismiss.DismissApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.dismiss.DismissApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.issue.IssueApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.issue.IssueApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.issue.IssuedApiKeyResult;
+import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.verify.VerifyApiKeyQuery;
+import me.dhiren9939.backend.access.application.usecase.verify.VerifyApiKeyUseCase;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.shared.access.Scope;
@@ -125,19 +125,19 @@ class SqlMigrationValidateIntegrationTest {
 
         IssuedApiKeyResult issued = issueApiKey.handle(new IssueApiKeyCommand(owner, "sql", Lifetime.ONE_DAY, permissions));
         UUID id = issued.key().apiKeyId();
-        confirmChange.handle(new ConfirmChangeCommand(id, 1));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 1));
         assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(issued.key().accessId(), issued.accessSecret())).permissions())
                 .isEqualTo(permissions);
 
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "sql2", Lifetime.ONE_MONTH,
                 new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ))));
-        confirmChange.handle(new ConfirmChangeCommand(id, 2));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2));
 
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
-        confirmChange.handle(new ConfirmChangeCommand(id, 3));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 3));
         dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
 
-        assertThat(jdbc.queryForList("select event_type from access.outbox where event_type like 'apiKey.projection.%' order by change_version", String.class))
+        assertThat(jdbc.queryForList("select event_type from access.outbox order by change_version", String.class))
                 .containsExactly("apiKey.projection.create", "apiKey.projection.update", "apiKey.projection.delete");
         assertThat(jdbc.queryForObject("select count(*) from access.api_keys", Long.class)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from access.pending_changes", Long.class)).isZero();

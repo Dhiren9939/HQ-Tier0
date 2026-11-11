@@ -164,7 +164,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         json(patch(keys() + "/" + id), "{\"name\":\"" + "x".repeat(257) + "\"}").andExpect(status().isBadRequest());
         json(post(keys()), "{\"name\":\"" + "x".repeat(257) + "\",\"expiry\":\"NEVER\"}")
                 .andExpect(status().isBadRequest());
-        assertThat(count("access.outbox where event_type like 'apiKey.projection.%'")).as("rejected requests write no events").isEqualTo(1);
+        assertThat(count("access.outbox")).as("rejected requests write no events").isEqualTo(1);
     }
 
     @Test

@@ -12,7 +12,23 @@ import java.util.UUID;
  * {@code permits}, which stops every exhaustive {@code switch} over events (such as the outbox listener's)
  * from compiling until it handles the new type.</p>
  */
-public sealed interface ApiKeyProjectionCommand extends ApiKeyEvent permits CreateApiKeyProjectionCommand, UpdateApiKeyProjectionCommand, DeleteApiKeyProjectionCommand {
+public sealed interface ApiKeyProjectionCommand permits CreateApiKeyProjectionCommand, UpdateApiKeyProjectionCommand, DeleteApiKeyProjectionCommand {
+    String eventType();
+
+    long version();
+
+    /** When the aggregate registered the command. */
+    Instant occurredAt();
+
+    /** When the command was published into the stream; null until a relay publishes it. */
+    Instant emittedAt();
+
+    UUID apiKeyId();
+
+    UUID userId();
+
+    String accessId();
+
     String apiKeyName();
 
     Permissions permissions();

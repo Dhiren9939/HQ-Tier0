@@ -1,13 +1,13 @@
 package me.dhiren9939.backend.integration;
 
-import me.dhiren9939.backend.access.application.port.in.ApiKeyView;
-import me.dhiren9939.backend.access.application.port.in.DeleteApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.DismissApiKeyCommand;
-import me.dhiren9939.backend.access.application.port.in.RejectChangeCommand;
-import me.dhiren9939.backend.access.application.port.in.UpdateApiKeyCommand;
-import me.dhiren9939.backend.access.domain.ApiKeyState;
-import me.dhiren9939.backend.shared.access.events.domain.FailureReason;
-import me.dhiren9939.backend.access.domain.Lifetime;
+import me.dhiren9939.backend.access.application.model.ApiKeyView;
+import me.dhiren9939.backend.access.application.usecase.delete.DeleteApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.dismiss.DismissApiKeyCommand;
+import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
+import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyCommand;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
+import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -100,7 +100,7 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
         UUID id = jdbcIssueNamedBoom();
         int events = outbox().size();
 
-        assertThatThrownBy(() -> rejectChange.handle(new RejectChangeCommand(id, 1, FailureReason.REJECTED)))
+        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, FailureReason.REJECTED)))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.PROVISIONING);
