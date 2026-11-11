@@ -105,7 +105,7 @@ States are derived from the confirmed state and the pending change; they are not
 5. An update that changes nothing creates no pending change and no event.
 6. Only the owner can read or change a key.
 7. Permissions never contain null, and every level is one its scope accepts (otherwise HTTP 400).
-8. Unknown, pending, wrong-secret and expired Access IDs all produce the same `ApiKeyVerificationFailure` (no enumeration).
+8. Verification failures carry a machine-readable `VerificationFailureCode` and an end-user-safe message. Unknown Access IDs and wrong secrets are one outcome (`INVALID_CREDENTIALS`); the secret is checked before the key's state, so `KEY_EXPIRED`, `KEY_DELETED` and `KEY_NOT_ACTIVE` are only revealed to someone who holds the right secret (no enumeration).
 
 ## Renames from old code
 
@@ -153,7 +153,7 @@ me.dhiren9939.backend
 │   ├── events/outbound/            ApiKeyProjectionCommand (sealed) with Create/Update/DeleteApiKeyProjectionCommand (outgoing)
 │   ├── events/inbound/           ApiKeyChangeConfirmed, ApiKeyChangeRejected, FailureReason (incoming from the data plane)
 │   ├── Permissions, Scope, AccessLevel, InvalidPermissionsException
-│   └── ApiKeyFacade, ApiKeyVerifyDto, ApiKeyVerificationFailure, ApiKeyParsingFailure
+│   └── ApiKeyFacade, ApiKeyVerifyDto, ApiKeyVerificationFailure, VerificationFailureCode
 └── access/                       the Access bounded context (holds no classes at its root)
     ├── domain/
     │   ├── aggregates/apikey/    ApiKey aggregate, PendingChange, ApiKeyState, ChangeStatus, IssuedCredential,

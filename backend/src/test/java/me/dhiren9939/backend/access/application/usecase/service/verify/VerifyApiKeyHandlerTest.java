@@ -9,9 +9,10 @@ import java.util.Map;
 import me.dhiren9939.backend.access.application.interfaces.CredentialVerifier;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
-import me.dhiren9939.backend.shared.access.ApiKeyParsingFailure;
 import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
+import me.dhiren9939.backend.shared.access.VerificationFailureCode;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -37,6 +38,9 @@ class VerifyApiKeyHandlerTest {
             return ("hash-of-" + presentedSecret).equals(storedSecretHash);
         }
     };
+
+    private static final String INVALID_MESSAGE = "The API key or secret is invalid.";
+    private static final String MALFORMED_MESSAGE = "The API key is missing or not in a recognised format.";
 
     private InMemoryApiKeys apiKeys;
     private VerifyApiKeyHandler handler;
@@ -88,36 +92,60 @@ class VerifyApiKeyHandlerTest {
     }
 
     @Test
-    void everyNonAuthenticatableCaseFailsWithTheSameMessage() {
+    void anUnknownAccessIdAWrongSecretAndAnUnsupportedFormatAreOneOutcome() {
         apiKeys.existing(active());
 
-        // wrong secret
-        assertFailure(() -> verify("V1_acc", "wrong"));
-        // unknown access id
-        assertFailure(() -> verify("V1_unknown", "secret_raw"));
-        // key format nobody can verify
-        assertFailure(() -> verify("V9_acc", "secret_raw"));
-        // expired
-        VerifyApiKeyHandler later = handlerAt(Clock.fixed(NOW.plus(Duration.ofDays(40)), ZoneOffset.UTC));
-        assertFailure(() -> later.handle(new VerifyApiKeyQuery("V1_acc", "secret_raw")));
+        assertFailure(() -> verify("V1_unknown", "secret_raw"), VerificationFailureCode.INVALID_CREDENTIALS, INVALID_MESSAGE);
+        assertFailure(() -> verify("V1_acc", "wrong"), VerificationFailureCode.INVALID_CREDENTIALS, INVALID_MESSAGE);
+        assertFailure(() -> verify("V9_acc", "secret_raw"), VerificationFailureCode.INVALID_CREDENTIALS, INVALID_MESSAGE);
     }
 
     @Test
-    void provisioningFailedAndDeletedKeysFailLikeUnknownOnes() {
-        for (ApiKey key : List.of(provisioning(), provisioningFailed(), deleted())) {
+    void anExpiredKeyIsReportedAsExpiredToWhoeverHoldsItsSecret() {
+        apiKeys.existing(active());
+        VerifyApiKeyHandler later = handlerAt(Clock.fixed(NOW.plus(Duration.ofDays(40)), ZoneOffset.UTC));
+
+        assertFailure(() -> later.handle(new VerifyApiKeyQuery("V1_acc", "secret_raw")),
+                VerificationFailureCode.KEY_EXPIRED, "The API key has expired.");
+    }
+
+    @Test
+    void aDeletedKeyIsReportedAsDeleted() {
+        apiKeys.existing(deleted());
+
+        assertFailure(() -> verify("V1_acc", "secret_raw"), VerificationFailureCode.KEY_DELETED, "The API key has been deleted.");
+    }
+
+    @Test
+    void aKeyWhoseCreationIsPendingOrFailedIsReportedAsNotActive() {
+        for (ApiKey key : List.of(provisioning(), provisioningFailed())) {
             InMemoryApiKeys fresh = new InMemoryApiKeys();
             fresh.existing(key);
             VerifyApiKeyHandler h = new VerifyApiKeyHandler(fresh, List.of(V1), CLOCK);
 
-            assertFailure(() -> h.handle(new VerifyApiKeyQuery("V1_acc", "secret_raw")));
+            assertFailure(() -> h.handle(new VerifyApiKeyQuery("V1_acc", "secret_raw")),
+                    VerificationFailureCode.KEY_NOT_ACTIVE, "The API key is not active.");
         }
     }
 
     @Test
-    void malformedAccessIdsAreAParsingFailureNotAnAuthenticationOutcome() {
-        assertThatThrownBy(() -> verify("not-a-key", "secret_raw")).isInstanceOf(ApiKeyParsingFailure.class);
-        assertThatThrownBy(() -> verify(null, "secret_raw")).isInstanceOf(ApiKeyParsingFailure.class);
-        assertThatThrownBy(() -> verify("V1_acc", null)).isInstanceOf(ApiKeyParsingFailure.class);
+    @DisplayName("the state of a key is only revealed to someone with the right secret")
+    void withAWrongSecretEveryKeyLooksTheSame() {
+        for (ApiKey key : List.of(active(), deleted(), provisioning(), provisioningFailed())) {
+            InMemoryApiKeys fresh = new InMemoryApiKeys();
+            fresh.existing(key);
+            VerifyApiKeyHandler expired = new VerifyApiKeyHandler(fresh, List.of(V1), Clock.fixed(NOW.plus(Duration.ofDays(40)), ZoneOffset.UTC));
+
+            assertFailure(() -> expired.handle(new VerifyApiKeyQuery("V1_acc", "wrong")),
+                    VerificationFailureCode.INVALID_CREDENTIALS, INVALID_MESSAGE);
+        }
+    }
+
+    @Test
+    void malformedCredentialsHaveTheirOwnCode() {
+        assertFailure(() -> verify("not-a-key", "secret_raw"), VerificationFailureCode.MALFORMED_CREDENTIALS, MALFORMED_MESSAGE);
+        assertFailure(() -> verify(null, "secret_raw"), VerificationFailureCode.MALFORMED_CREDENTIALS, MALFORMED_MESSAGE);
+        assertFailure(() -> verify("V1_acc", null), VerificationFailureCode.MALFORMED_CREDENTIALS, MALFORMED_MESSAGE);
     }
 
     @Test
@@ -126,9 +154,9 @@ class VerifyApiKeyHandlerTest {
         assertThat(ParsedApiKey.parse("V1_acc", "topsecret").toString()).doesNotContain("topsecret");
     }
 
-    private static void assertFailure(Runnable action) {
+    private static void assertFailure(Runnable action, VerificationFailureCode code, String message) {
         assertThatThrownBy(action::run)
-                .isInstanceOf(ApiKeyVerificationFailure.class)
-                .hasMessage(VerifyApiKeyHandler.FAILURE_MESSAGE);
+                .isInstanceOfSatisfying(ApiKeyVerificationFailure.class, failure -> assertThat(failure.code()).isEqualTo(code))
+                .hasMessage(message);
     }
 }

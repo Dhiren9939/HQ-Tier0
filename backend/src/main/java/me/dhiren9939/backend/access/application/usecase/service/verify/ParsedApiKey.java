@@ -1,6 +1,6 @@
 package me.dhiren9939.backend.access.application.usecase.service.verify;
 
-import me.dhiren9939.backend.shared.access.ApiKeyParsingFailure;
+import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -12,10 +12,10 @@ record ParsedApiKey(String accessId, String accessSecret, String keyFormat) {
 
     static ParsedApiKey parse(String accessId, String accessSecret) {
         if (accessId == null || accessSecret == null)
-            throw new ApiKeyParsingFailure("Invalid API key format");
+            throw ApiKeyVerificationFailure.malformed();
         Matcher matcher = ACCESS_ID_PATTERN.matcher(accessId);
         if (!matcher.matches())
-            throw new ApiKeyParsingFailure("Invalid API key format");
+            throw ApiKeyVerificationFailure.malformed();
         return new ParsedApiKey(accessId, accessSecret, matcher.group(1));
     }
 

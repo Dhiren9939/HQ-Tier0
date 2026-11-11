@@ -1,6 +1,7 @@
 package me.dhiren9939.backend.access.presentation.api.controllers;
 
 import me.dhiren9939.backend.shared.access.AccessLevel;
+import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.shared.access.Scope;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
 import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
@@ -236,6 +237,20 @@ class ApiKeyControllerTest {
 
         mvc.perform(get("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aVerificationFailureCarriesItsMachineCodeInTheProblemBody() throws Exception {
+        failure = ApiKeyVerificationFailure.expired();
+        mvc.perform(get("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("KEY_EXPIRED"))
+                .andExpect(jsonPath("$.detail").value("The API key has expired."));
+
+        failure = ApiKeyVerificationFailure.malformed();
+        mvc.perform(get("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_CREDENTIALS"));
     }
 
     @Test

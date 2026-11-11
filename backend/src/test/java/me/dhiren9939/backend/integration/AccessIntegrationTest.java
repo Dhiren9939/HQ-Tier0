@@ -35,7 +35,6 @@ import java.util.UUID;
 @AutoConfigureMockMvc
 public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
 
-    protected static final String VERIFY_FAILURE = "Could not verify the ApiKey";
 
     @Autowired protected JdbcTemplate jdbc;
     @Autowired protected MutableClock clock;

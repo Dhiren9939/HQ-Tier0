@@ -18,6 +18,7 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
+import me.dhiren9939.backend.shared.access.VerificationFailureCode;
 import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.shared.access.Scope;
 import org.junit.jupiter.api.DisplayName;
@@ -147,20 +148,21 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("verify: unknown, still-provisioning, wrong-secret and expired keys fail identically")
-    void verifyFailsIdentically() {
+    @DisplayName("verify: unknown ids and wrong secrets are one outcome; the key's state is reported only with the right secret")
+    void verifyFailsWithTheRightCode() {
         IssuedApiKeyResult provisioning = issue(owner, "provisioning", Lifetime.NEVER, ingestionWrite());
         IssuedApiKeyResult active = issueActive(owner, "active", Lifetime.ONE_DAY, ingestionWrite());
 
-        assertVerifyFails(provisioning.key().accessId(), provisioning.accessSecret());
-        assertVerifyFails("V1_doesNotExist", "whatever");
-        assertVerifyFails(active.key().accessId(), "not-the-secret");
+        assertVerifyFails(provisioning.key().accessId(), provisioning.accessSecret(), VerificationFailureCode.KEY_NOT_ACTIVE);
+        assertVerifyFails(provisioning.key().accessId(), "not-the-secret", VerificationFailureCode.INVALID_CREDENTIALS);
+        assertVerifyFails("V1_doesNotExist", "whatever", VerificationFailureCode.INVALID_CREDENTIALS);
+        assertVerifyFails(active.key().accessId(), "not-the-secret", VerificationFailureCode.INVALID_CREDENTIALS);
 
         // still fine now, but past its one-day lifetime it must stop authenticating
         assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(active.key().accessId(), active.accessSecret())))
                 .isNotNull();
         clock.pinTo(Instant.now().plus(Duration.ofDays(2)));
-        assertVerifyFails(active.key().accessId(), active.accessSecret());
+        assertVerifyFails(active.key().accessId(), active.accessSecret(), VerificationFailureCode.KEY_EXPIRED);
     }
 
     // ------------------------------------------------------------------------------------------
@@ -333,7 +335,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.DELETED);
         assertThat(jdbc.queryForObject("select deleted_at is not null from access.api_keys", Boolean.class)).isTrue();
-        assertVerifyFails(accessId, issued.accessSecret());
+        assertVerifyFails(accessId, issued.accessSecret(), VerificationFailureCode.KEY_DELETED);
         assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "x", null, null)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
         assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(owner, id)))
@@ -444,10 +446,9 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
     // ------------------------------------------------------------------------------------------
 
-    private void assertVerifyFails(String accessId, String secret) {
+    private void assertVerifyFails(String accessId, String secret, VerificationFailureCode code) {
         assertThatThrownBy(() -> verifyApiKey.handle(new VerifyApiKeyQuery(accessId, secret)))
-                .isInstanceOf(ApiKeyVerificationFailure.class)
-                .hasMessage(VERIFY_FAILURE);
+                .isInstanceOfSatisfying(ApiKeyVerificationFailure.class, failure -> assertThat(failure.code()).isEqualTo(code));
     }
 
     private static String sha256Hex(String secret) throws Exception {

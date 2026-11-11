@@ -267,8 +267,18 @@ classDiagram
         createdAt
         expiresAt
     }
-    class ApiKeyVerificationFailure
-    class ApiKeyParsingFailure
+    class ApiKeyVerificationFailure {
+        +code() VerificationFailureCode
+    }
+    class VerificationFailureCode {
+        <<enumeration>>
+        MALFORMED_CREDENTIALS
+        INVALID_CREDENTIALS
+        KEY_EXPIRED
+        KEY_DELETED
+        KEY_NOT_ACTIVE
+    }
+    ApiKeyVerificationFailure --> VerificationFailureCode
     class InvalidPermissionsException
 
     Permissions --> Scope
@@ -283,8 +293,8 @@ classDiagram
     ApiKeyVerifyDto --> Permissions
 ```
 
-The three failures (`ApiKeyVerificationFailure`, `ApiKeyParsingFailure`, `InvalidPermissionsException`) are
-plain runtime exceptions. `ApiKeyProjectionCommand` is sealed: only the three records may implement it, and they are the only things Access
+The failures (`ApiKeyVerificationFailure`, `InvalidPermissionsException`) are
+plain runtime exceptions; `ApiKeyVerificationFailure` carries a `VerificationFailureCode`. `ApiKeyProjectionCommand` is sealed: only the three records may implement it, and they are the only things Access
 writes to the outbox. They carry no expiry; `occurredAt` is when the change reached the outbox, `emittedAt` is null
 until something publishes it. `ApiKeyChangeConfirmed` and `ApiKeyChangeRejected` go the other way: they are what the
 data plane sends back, and they are the inputs of `ConfirmChangeUseCase` and `RejectChangeUseCase`. The aggregate
@@ -468,20 +478,30 @@ sequenceDiagram
 
     Caller->>F: verifyApiKey(accessId, accessSecret)
     F->>H: handle(VerifyApiKeyQuery)
-    H->>H: ParsedApiKey.parse (bad format: ApiKeyParsingFailure)
+    H->>H: ParsedApiKey.parse (bad format: MALFORMED_CREDENTIALS)
     H->>V: find verifier that supports the key format
     H->>Ad: findByAccessId(accessId)
-    Ad-->>H: ApiKey (missing: ApiKeyVerificationFailure)
-    H->>Key: canAuthenticate(now)
-    Key-->>H: false for provisioning, deleted or expired keys
+    Ad-->>H: ApiKey (missing: INVALID_CREDENTIALS)
     H->>V: matches(presentedSecret, storedHash)
-    V-->>H: false means ApiKeyVerificationFailure
+    V-->>H: false means INVALID_CREDENTIALS
+    H->>Key: canAuthenticate(now)
+    Key-->>H: false for provisioning, deleted or expired keys: KEY_NOT_ACTIVE, KEY_DELETED or KEY_EXPIRED
     H-->>F: VerifiedApiKey
     F-->>Caller: ApiKeyVerifyDto
 ```
 
-Every non-authenticatable case throws `ApiKeyVerificationFailure` with the same message, so a caller cannot
-tell an unknown key from a wrong secret.
+Every failure is an `ApiKeyVerificationFailure` with a machine-readable `code` and a message written for end users, so a
+gateway can branch on the code and pass the message on. An unknown access id, a wrong secret and an unsupported key format are
+one outcome (`INVALID_CREDENTIALS`), and the secret is checked before the key's state, so `KEY_EXPIRED`, `KEY_DELETED` and
+`KEY_NOT_ACTIVE` are only ever revealed to a caller who holds the right secret. Nothing leaks about keys they do not hold.
+
+| Code | Message | HTTP (if mapped) |
+|---|---|---|
+| `MALFORMED_CREDENTIALS` | The API key is missing or not in a recognised format. | 400 |
+| `INVALID_CREDENTIALS` | The API key or secret is invalid. | 401 |
+| `KEY_EXPIRED` | The API key has expired. | 401 |
+| `KEY_DELETED` | The API key has been deleted. | 401 |
+| `KEY_NOT_ACTIVE` | The API key is not active. | 401 |
 
 ## 8. Package tree (every class)
 
@@ -495,8 +515,8 @@ me.dhiren9939.backend
 │   ├── InvalidPermissionsException         a level its scope does not accept
 │   ├── ApiKeyFacade                        in-process "verify this credential" entry point
 │   ├── ApiKeyVerifyDto                     result of a successful verification
-│   ├── ApiKeyVerificationFailure           could not authenticate (always the same message)
-│   ├── ApiKeyParsingFailure                access ID is not in the expected format
+│   ├── ApiKeyVerificationFailure           could not verify: a code plus an end-user-safe message
+│   ├── VerificationFailureCode             MALFORMED_CREDENTIALS, INVALID_CREDENTIALS, KEY_EXPIRED, KEY_DELETED, KEY_NOT_ACTIVE
 │   └── events/
 │       ├── domain/                         what Access sends to the data plane (the outbox)
 │       │   ├── ApiKeyProjectionCommand         sealed interface of the three projection commands

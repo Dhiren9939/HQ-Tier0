@@ -2,9 +2,9 @@ package me.dhiren9939.backend.access.presentation.api.controllers;
 
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.shared.access.ApiKeyParsingFailure;
 import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.shared.access.InvalidPermissionsException;
+import me.dhiren9939.backend.shared.access.VerificationFailureCode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,13 +25,13 @@ class ApiKeyExceptionHandler {
     }
 
     @ExceptionHandler(ApiKeyVerificationFailure.class)
-    ProblemDetail unauthorized(ApiKeyVerificationFailure exception) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage());
-    }
-
-    @ExceptionHandler(ApiKeyParsingFailure.class)
-    ProblemDetail badRequest(ApiKeyParsingFailure exception) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+    ProblemDetail verificationFailed(ApiKeyVerificationFailure exception) {
+        HttpStatus status = exception.code() == VerificationFailureCode.MALFORMED_CREDENTIALS
+                ? HttpStatus.BAD_REQUEST
+                : HttpStatus.UNAUTHORIZED;
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, exception.getMessage());
+        problem.setProperty("code", exception.code().name());
+        return problem;
     }
 
     @ExceptionHandler(InvalidPermissionsException.class)

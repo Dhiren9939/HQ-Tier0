@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
 import me.dhiren9939.backend.access.application.interfaces.CredentialVerifier;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,8 +22,6 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 class VerifyApiKeyHandler implements VerifyApiKeyUseCase {
-    static final String FAILURE_MESSAGE = "Could not verify the ApiKey";
-
     private final ApiKeys apiKeys;
     private final List<CredentialVerifier> verifiers;
     private final Clock clock;
@@ -37,31 +36,34 @@ class VerifyApiKeyHandler implements VerifyApiKeyUseCase {
                 .findFirst()
                 .orElseThrow(() -> {
                     log.error("No credential verifier for key format {}", presented.keyFormat());
-                    return failure();
+                    return ApiKeyVerificationFailure.invalid();
                 });
 
         ApiKey key = apiKeys.findByAccessId(presented.accessId())
                 .orElseThrow(() -> {
                     log.warn("No ApiKey found for accessId={}", presented.accessId());
-                    return failure();
+                    return ApiKeyVerificationFailure.invalid();
                 });
+
+        // The secret comes first: the more specific outcomes below are only for someone who holds it, so an
+        // unknown access id and a wrong secret stay indistinguishable and nothing about a key leaks without it.
+        if (!verifier.matches(presented.accessSecret(), key.getAccessSecretHash())) {
+            log.warn("Secret mismatch for accessId {}", presented.accessId());
+            throw ApiKeyVerificationFailure.invalid();
+        }
 
         Instant now = clock.instant();
         if (!key.canAuthenticate(now)) {
-            log.warn("ApiKey with accessId={} cannot authenticate in state {}", presented.accessId(), key.state(now));
-            throw failure();
-        }
-
-        if (!verifier.matches(presented.accessSecret(), key.getAccessSecretHash())) {
-            log.warn("Secret mismatch for accessId {}", presented.accessId());
-            throw failure();
+            ApiKeyState state = key.state(now);
+            log.warn("ApiKey with accessId={} cannot authenticate in state {}", presented.accessId(), state);
+            throw switch (state) {
+                case EXPIRED -> ApiKeyVerificationFailure.expired();
+                case DELETED -> ApiKeyVerificationFailure.deleted();
+                default -> ApiKeyVerificationFailure.notActive();
+            };
         }
 
         return new VerifiedApiKey(key.getApiKeyId(), key.getUserId(), key.getApiKeyName(),
                 key.getPermissions(), key.getCreatedAt(), key.getExpiresAt());
-    }
-
-    private static ApiKeyVerificationFailure failure() {
-        return new ApiKeyVerificationFailure(FAILURE_MESSAGE);
     }
 }
