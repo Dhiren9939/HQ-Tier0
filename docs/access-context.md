@@ -42,7 +42,7 @@ Ubiquitous language and rules of the Access context (supporting subdomain, contr
 | **Confirm / Reject** | Data plane's answer for a specific revision. Confirm applies the change; reject marks it failed. |
 | **Dismiss** | The owner acknowledges that they understand the state of their key: it clears a failed change, or removes a key that is finished (`PROVISIONING_FAILED`, `DELETED`). It never emits anything; compensating commands go out when the change fails. Replaces user-facing "acknowledgeFailure". Nothing disappears without a dismiss. |
 | **Cancel** | The owner withdraws a change that is still pending. It fails with `CANCELLED_BY_USER` and is compensated at once, like any failure. |
-| **Change events** | Facts about how a requested revision ended, written to the same outbox: `ApiKeyChangeConfirmed` (`apiKey.change.confirmed`: the data plane confirmed it, so it took effect) and `ApiKeyChangeRejected` (`apiKey.change.rejected`: it failed for a `FailureReason`: nack, timeout, outbox failure or user cancel). Both carry `apiKeyId`, `userId`, `accessId`, `version` (the revision), `changeKind` (CREATE/UPDATE/DELETE), `occurredAt`, `emittedAt`; rejected adds `failureReason`. A rejected event is followed by its compensating command in the stream. `ChangeKind` and `FailureReason` live in `shared/access/events/domain` because the events publish them. |
+| **Incoming events** | What the data plane sends back, as plain records in `shared/access/events/inbound`: `ApiKeyChangeConfirmed(apiKeyId, version)` (it applied that revision) and `ApiKeyChangeRejected(apiKeyId, version, failureReason)` (that revision failed). They are the inputs of `ConfirmChangeUseCase` and `RejectChangeUseCase`; the internal HTTP controller builds them from the path and body. Access does not emit them and writes nothing to the outbox for them. A reject does emit the compensating projection command. |
 | **Compensating command** | Emitted the moment a change fails, at the next revision, because the data plane may have applied it anyway: failed create -> `DeleteApiKeyProjectionCommand`; failed update -> `UpdateApiKeyProjectionCommand` restating the confirmed state; failed delete -> `CreateApiKeyProjectionCommand` restoring the key (it carries the secret hash, so it also works when the key is gone downstream). |
 | **Deleted (tombstone)** | A confirmed delete. The key stays visible, cannot authenticate, and accepts no changes until the owner dismisses it. |
 | **Failure Reason** | Exactly four: `REJECTED` (data plane nack), `CONFIRM_TIMEOUT` (no confirm/reject in time), `OUTBOX_PUBLISH_FAILURE`, `CANCELLED_BY_USER`. |
@@ -112,30 +112,30 @@ States are derived from the confirmed state and the pending change; they are not
 | Old | New |
 |---|---|
 | API Key (context) | Access (package `me.dhiren9939.backend.access`) |
-| `ApiKeyEntity` | `ApiKey` aggregate (`domain`), no setters, behaviour methods |
-| `ApiKeyTriplet` | `IssuedCredential` (`domain`) |
-| `ApiKeyExpiry` service + `ApiKeyExpiry.Duration` | `Lifetime` enum with `expiryFrom(now)`, pure domain (`domain`) |
+| `ApiKeyEntity` | `ApiKey` aggregate (`domain.aggregates.apikey`), no setters, behaviour methods |
+| `ApiKeyTriplet` | `IssuedCredential` (`domain.aggregates.apikey`) |
+| `ApiKeyExpiry` service + `ApiKeyExpiry.Duration` | `Lifetime` enum with `expiryFrom(now)`, pure domain (`domain.aggregates.apikey`) |
 | `ApiKeyNextEntity` / `ApiKeyNextRepository` | `PendingChange`, owned by `ApiKey` (cascade, orphan removal), no repository |
-| `ApiKeyUpdateType` (`CREATION`, `UPDATE`, `DELETE`) | `ChangeKind` (`CREATE`, `UPDATE`, `DELETE`) |
+| `ApiKeyUpdateType` (`CREATION`, `UPDATE`, `DELETE`) | `ChangeKind` (`CREATE`, `UPDATE`, `DELETE`; in `domain.aggregates.apikey`) |
 | `ApiKeyUpdateStatus` | `ChangeStatus` |
-| `ApiKeyFailureReason` (`OUTBOX`, `NACK`, `TIMEOUT`) | `FailureReason` (`OUTBOX_PUBLISH_FAILURE`, `REJECTED`, `CONFIRM_TIMEOUT`) |
+| `ApiKeyFailureReason` (`OUTBOX`, `NACK`, `TIMEOUT`) | `FailureReason` (`OUTBOX_PUBLISH_FAILURE`, `REJECTED`, `CONFIRM_TIMEOUT`, plus new `CANCELLED_BY_USER`; in `shared.access.events.inbound`, because the incoming rejected event carries it) |
 | `issuedVersion` + `desiredVersion` | `revision` |
 | `appliedVersion` | `confirmedRevision` |
 | (new) | `deletedAt` (tombstone), derived `ApiKeyState` |
-| `new Permissions(null, null, null)` used as a patch | `ApiKeyChanges` + `PermissionChanges` (`domain`) |
+| `new Permissions(null, null, null)` used as a patch | `ApiKeyChanges` + `PermissionChanges` (`domain.aggregates.apikey`) |
 | `Permissions(ingestionPermission, tenantPermission, channelPermission)` record with `@Embeddable` | `Permissions` map-form value object (`shared.access`, no JPA) over `Scope` -> `AccessLevel` |
 | `ApiKeyPermissions.Ingestion` / `.Tenant` / `.Channel` enums | `Scope` enum (declares its allowed levels) + one `AccessLevel` enum |
-| `ApiKeyRepository` (Spring Data) | `ApiKeys` port (`application.port.out`), `ApiKeysAdapter` + `JpaApiKeyRepository` (`adapter.out.persistence`) |
-| `ApiKeyEventEmitterService` | removed; the aggregate registers events and `ApiKeysAdapter` (`adapter.out.persistence`) writes the outbox rows |
-| `ApiKeyConfig` | `config.ApiKeyConfig` |
-| `Sha256SecretHasher`, `SortableEncoder` | `adapter.out.keyformat` |
+| `ApiKeyRepository` (Spring Data) | `ApiKeys` (`domain.repositories`), `ApiKeysAdapter` + `JpaApiKeyRepository` (`infrastructure.persistence.repositories`) |
+| `ApiKeyEventEmitterService` | removed; the aggregate registers projection commands and `ApiKeysAdapter` (`infrastructure.persistence.repositories`) writes the outbox rows |
+| `ApiKeyConfig` | `infrastructure.config.ApiKeyConfig` |
+| `Sha256SecretHasher`, `SortableEncoder` | `infrastructure.keyformat` |
 | `ApiKeyCreationProviderV1` + `ApiKeyCreationService` (`@Qualifier("creationV1")`) | `V1CredentialIssuer`; `IssueCredentialPort` bean picks the issuer named by `access.key-format.current` |
-| `ApiKeyVerificationProviderV1` + `ApiKeyVerificationService` | `V1CredentialVerifier` (secret check only) behind the `CredentialVerifier` port; lookup, state and expiry checks live in `VerifyApiKeyHandler` and the aggregate |
+| `ApiKeyVerificationProviderV1` + `ApiKeyVerificationService` | `V1CredentialVerifier` (secret check only) behind the `CredentialVerifier` interface (`application.interfaces`); lookup, state and expiry checks live in `VerifyApiKeyHandler` and the aggregate |
 | `ApiKeyToken` (mutable, `verified` flag) | immutable `ParsedApiKey` (internal) -> `VerifiedApiKey` |
 | `ApiKeyDto` (nullable secret and hash) | `ApiKeyView` (no secrets) and `IssuedApiKeyResult` (secret, once) |
-| `ApiKeyService`, `ApiKeyPersistenceService` | one `*UseCase` + `*Handler` per operation |
-| `ApiKeyController` / `ApiKeyInternalController` in `web` | `adapter.in.web`, depend on input ports only |
-| `ApiKeyFacadeImpl` | `adapter.in.facade.ApiKeyFacadeImpl`, calls `VerifyApiKeyUseCase` |
+| `ApiKeyService`, `ApiKeyPersistenceService` | one `*UseCase` + `*Handler` per operation, each in its own `application.usecase.<name>` package |
+| `ApiKeyController` / `ApiKeyInternalController` in `web` | `presentation.api.controllers`, depend on the use cases only; DTOs in `presentation.api.dtos` |
+| `ApiKeyFacadeImpl` | `presentation.facade.ApiKeyFacadeImpl`, calls `VerifyApiKeyUseCase` |
 | `acknowledgeFailure` (user-facing) | Dismiss: `POST /api/v1/user/{userId}/apikey/{apiKeyId}/dismiss`; new: Cancel `POST /api/v1/user/{userId}/apikey/{apiKeyId}/cancel` |
 | six `/internal/apikey/{id}/{creation,update,deletion}/{success,failure}` endpoints | `POST /internal/apikey/{id}/changes/{revision}/confirm` and `/reject` (optional body `{"reason": ...}`, default `REJECTED`) |
 | schema `api_key`, tables `api_keys`, `api_key_next`, `outbox` | schema `access`, tables `api_keys`, `pending_changes`, `outbox` |
@@ -145,40 +145,50 @@ Responses carry `updateStatus` (`PENDING` or `FAILED`, absent when no change is 
 
 ## Package structure
 
-Pragmatic clean architecture: the dependency rule is `adapter` -> `application` -> `domain`. The aggregate is a rich JPA entity, so `jakarta.persistence` is the only framework import allowed in `domain`.
+Pragmatic clean architecture: the layers are `domain`, `application`, `presentation` and `infrastructure`, and the dependency rule is `presentation` and `infrastructure` -> `application` -> `domain`. The aggregate is a rich JPA entity, so `jakarta.persistence` is the only framework import allowed in `domain`.
 
 ```
 me.dhiren9939.backend
 ├── shared/access/                public contracts, no behaviour
-│   ├── events/                   CreateApiKeyProjectionCommand, UpdateApiKeyProjectionCommand, DeleteApiKeyProjectionCommand, ApiKeyProjectionCommand
+│   ├── events/domain/            ApiKeyProjectionCommand (sealed) with Create/Update/DeleteApiKeyProjectionCommand (outgoing)
+│   ├── events/inbound/           ApiKeyChangeConfirmed, ApiKeyChangeRejected, FailureReason (incoming from the data plane)
 │   ├── Permissions, Scope, AccessLevel, InvalidPermissionsException
 │   └── ApiKeyFacade, ApiKeyVerifyDto, ApiKeyVerificationFailure, ApiKeyParsingFailure
 └── access/                       the Access bounded context (holds no classes at its root)
-    ├── domain/                   ApiKey aggregate, PendingChange, ApiKeyState, ChangeKind, ChangeStatus,
-    │                             FailureReason, IssuedCredential, Lifetime, ApiKeyChanges, PermissionChanges,
-    │                             DesiredState, DismissResult, ApiKeyNotFoundException, ApiKeyUpdateFailure
+    ├── domain/
+    │   ├── aggregates/apikey/    ApiKey aggregate, PendingChange, ApiKeyState, ChangeStatus, IssuedCredential,
+    │   │                         Lifetime, ApiKeyChanges, PermissionChanges, DesiredState, DismissResult
+    │   ├── exceptions/           ApiKeyNotFoundException, ApiKeyUpdateFailure
+    │   └── repositories/         ApiKeys (the storage contract; the adapter that implements it is in infrastructure)
     ├── application/
-    │   ├── port/in/              one use case per operation, plus its command/query and result records;
-    │   │                         ApiKeyView (secret-free read model), VerifiedApiKey
-    │   ├── port/out/             ApiKeys (repository), IssueCredentialPort, CredentialVerifier
-    │   └── usecase/              one package-private *Handler per input port, RetriedTransaction, OptimisticLockRetry, ParsedApiKey
-    ├── adapter/
-    │   ├── in/web/               ApiKeyController, ApiKeyInternalController, ApiKeyExceptionHandler, DTOs
-    │   ├── in/facade/            ApiKeyFacadeImpl (in-process verification entry point)
-    │   ├── out/persistence/      ApiKeysAdapter, JpaApiKeyRepository, outbox entity + repository
-    │   └── out/keyformat/        CredentialIssuer, Sha256SecretHasher, SortableEncoder, v1/ issuer + verifier
-    └── config/                   ApiKeyConfig (Clock, SecureRandom, selects the current key format)
+    │   ├── usecase/<name>/       one package per operation (issue, get, update, delete, dismiss, cancel, confirm,
+    │   │                         reject, verify): the *UseCase interface, its *Command/*Query and result record,
+    │   │                         and the package-private *Handler; verify also holds ParsedApiKey and VerifiedApiKey
+    │   ├── model/                ApiKeyView (secret-free read model shared by several use cases)
+    │   ├── transaction/          RetriedTransaction, OptimisticLockRetry
+    │   └── interfaces/           IssueCredentialPort, CredentialVerifier
+    ├── presentation/
+    │   ├── api/controllers/      ApiKeyController, ApiKeyInternalController, ApiKeyExceptionHandler
+    │   ├── api/dtos/             request and response DTOs
+    │   └── facade/               ApiKeyFacadeImpl (in-process verification entry point)
+    └── infrastructure/
+        ├── persistence/
+        │   ├── models/           EventOutboxEntity
+        │   └── repositories/     ApiKeysAdapter, JpaApiKeyRepository, EventOutboxRepository
+        ├── keyformat/            CredentialIssuer, Sha256SecretHasher, SortableEncoder, v1/ issuer + verifier
+        └── config/               ApiKeyConfig (Clock, SecureRandom, selects the current key format)
 ```
 
-Rules, enforced by `ArchitectureTest` (ArchUnit):
+Rules, enforced by `ArchitectureTest` (ArchUnit, 12 tests):
 
-- `domain` depends only on itself, `shared`, `java.*`, `jakarta.persistence`, lombok, the UUID generator and JSpecify; no Spring.
-- `application` never depends on `adapter` or `config`.
-- Inbound adapters never depend on outbound adapters, the handlers or the output ports; they talk to input ports only.
-- Outbound adapters never depend on inbound adapters or handlers.
-- Input ports are implemented only in `application.usecase`, and handlers are not public.
-- `shared` never depends on `access`.
-- No field injection; no package cycles inside `access`.
+- `domain` (including `domain.repositories`) depends only on itself, `shared`, `java.*`, `jakarta.persistence`, lombok, the UUID generator and JSpecify; no Spring.
+- `application` never depends on `presentation` or `infrastructure`.
+- The layers only point inwards (ArchUnit layered architecture): nothing depends on `presentation` or `infrastructure`; `application` is used only by those two; `domain` is used only by `application`, `presentation` and `infrastructure`.
+- `presentation` never depends on `infrastructure`, `domain.repositories` or `application.interfaces`; it talks to the use cases.
+- `infrastructure` never depends on `presentation` or on `application.usecase`.
+- Use case interfaces are implemented only inside `application.usecase`, and `*Handler` classes are not public.
+- `shared` is free of frameworks (only `java.*` and lombok) and never depends on `access`.
+- No field injection; no package cycles among `domain`, `application`, `presentation` and `infrastructure`.
 
 `shared/access` is what other contexts may depend on. It is free of JPA, Spring and JSON libraries (enforced by ArchUnit); `Permissions` is a plain value object.
 
@@ -186,7 +196,7 @@ The key format used for new credentials is `access.key-format.current` (default 
 
 ## Use cases
 
-Each is an input port in `application.port.in` with one handler in `application.usecase`. Handlers load the aggregate through `ApiKeys`, call one aggregate method and save; they hold no business rules.
+Each is a use case interface in its own package `application.usecase.<name>` with one package-private handler beside it. Handlers load the aggregate through `ApiKeys`, call one aggregate method and save; they hold no business rules.
 
 | Use case | Command / query | Result |
 |---|---|---|
@@ -196,13 +206,13 @@ Each is an input port in `application.port.in` with one handler in `application.
 | `DeleteApiKeyUseCase` | `DeleteApiKeyCommand(userId, apiKeyId)` | none |
 | `DismissApiKeyUseCase` | `DismissApiKeyCommand(userId, apiKeyId)` | none |
 | `CancelApiKeyChangeUseCase` | `CancelApiKeyChangeCommand(userId, apiKeyId)` | none |
-| `ConfirmChangeUseCase` | `ConfirmChangeCommand(apiKeyId, revision)` | none |
-| `RejectChangeUseCase` | `RejectChangeCommand(apiKeyId, revision, reason)` | none |
+| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version)` | none |
+| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, failureReason)` | none |
 | `VerifyApiKeyUseCase` | `VerifyApiKeyQuery(accessId, accessSecret)` | `VerifiedApiKey` |
 
-Output ports: `ApiKeys` (load and store aggregates), `IssueCredentialPort` (new credential in the current key format), `CredentialVerifier` (secret vs stored hash, per key format).
+Output abstractions: `ApiKeys` (in `domain.repositories`: load and store aggregates), `IssueCredentialPort` (new credential in the current key format), `CredentialVerifier` (secret vs stored hash, per key format); both of these are in `application.interfaces`.
 
-Failures are mapped to HTTP by `ApiKeyExceptionHandler`: not found -> 404, refused change -> 409, verification failure -> 401, malformed access id -> 400.
+Failures are mapped to HTTP by `ApiKeyExceptionHandler` (`presentation.api.controllers`): not found -> 404, refused change -> 409, verification failure -> 401, malformed access id -> 400.
 
 ## Known bugs fixed by the refactor
 
@@ -211,7 +221,7 @@ Failures are mapped to HTTP by `ApiKeyExceptionHandler`: not found -> 404, refus
 
 ## Outbox
 
-Events are registered by the `ApiKey` aggregate itself (`issue`, `requestUpdate`, `requestDeletion`, and `reject`/`cancelPendingChange`, which register the compensating command) and collected with `pullDomainEvents()`. `ApiKeysAdapter` writes each one to the outbox itself (`EventOutboxEntity.of(event)`) right after `save`/`delete`, in the caller's transaction, so if the row cannot be written the key change rolls back too. Event types are unchanged.
+Projection commands are registered by the `ApiKey` aggregate itself (`issue`, `requestUpdate`, `requestDeletion`, and `reject`/`cancelPendingChange`, which register the compensating command) and collected with `pullDomainEvents()`. `ApiKeysAdapter` writes each one to the outbox itself (`EventOutboxEntity.of(event)`) right after `save`/`delete`, in the caller's transaction, so if the row cannot be written the key change rolls back too. Confirming a change registers nothing; the confirm and reject coming in from the data plane are the incoming events described above, not outbox entries. Event types are `apiKey.projection.create`, `apiKey.projection.update` and `apiKey.projection.delete`.
 
 `ApiKeyProjectionCommand` is a `sealed interface` that permits exactly `CreateApiKeyProjectionCommand`, `UpdateApiKeyProjectionCommand` and `DeleteApiKeyProjectionCommand`. Adding an event type means adding it to `permits`, which makes the listener's exhaustive `switch` fail to compile until it is handled.
 
@@ -261,6 +271,6 @@ Tests extending `PostgresIntegrationTest` (package `me.dhiren9939.backend.integr
 - Only integration tests: `./mvnw test -Dgroups=integration`.
 - Skip them for a fast loop: `./mvnw test -Dgroups='!integration'`.
 
-What they cover: schema creation with the app's real config (`ddl-auto=update`); the key lifecycle through the input ports; outbox rows and payloads; orphan removal; atomicity (a database trigger makes the outbox write fail and the key change must roll back); concurrent updates; the HTTP surface with error mapping; and `SqlMigrationValidateIntegrationTest`, which applies only `db.migration/access/V1__create_access_schema.sql` to a fresh database and boots with `ddl-auto=validate`.
+What they cover: schema creation with the app's real config (`ddl-auto=update`); the key lifecycle through the use case interfaces; outbox rows and payloads; orphan removal; atomicity (a database trigger makes the outbox write fail and the key change must roll back); concurrent updates; the HTTP surface with error mapping; and `SqlMigrationValidateIntegrationTest`, which applies only `db.migration/access/V1__create_access_schema.sql` to a fresh database and boots with `ddl-auto=validate`.
 
 Bugs these tests found and fixed: instant columns in the SQL file were `TIMESTAMP` instead of `TIMESTAMPTZ` (Hibernate's validator does not notice, so the test also checks column types and a time-zone round trip), and `POST` without a name or expiry returned 500 instead of 400 (request validation added).
