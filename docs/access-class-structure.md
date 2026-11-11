@@ -26,7 +26,7 @@ these packages.
    `persistence` (`models` for the outbox entity, `repositories` for the database access and outbox writes),
    `keyformat` (credential format V1) and `config` (wiring).
 7. `shared/access` is the published contract other contexts may use: the outgoing projection commands
-   (`events/domain`), the incoming events from the data plane (`events/inbound`, with `FailureReason`),
+   (`events/outbound`), the incoming events from the data plane (`events/inbound`, with `FailureReason`),
    `Permissions`, `Scope`, `AccessLevel`, the facade and its failures. It has no Spring, JPA or JSON dependencies.
 
 **Dependency rule:** `presentation` and `infrastructure` -> `application` -> `domain` -> `shared`. Nothing points
@@ -92,7 +92,7 @@ classDiagram
         +desiredState() DesiredState
         +getPermissions() Permissions
         +isOwnedBy(userId) boolean
-        +pullDomainEvents() List
+        +pullProjectionCommands() List
     }
     class PendingChange {
         changeId
@@ -235,11 +235,13 @@ classDiagram
         <<record, incoming>>
         apiKeyId
         version
+        serviceId
     }
     class ApiKeyChangeRejected {
         <<record, incoming>>
         apiKeyId
         version
+        serviceId
         failureReason
     }
     class CreateApiKeyProjectionCommand {
@@ -366,8 +368,8 @@ Inputs and outputs of each use case (all records, each in its own `usecase/<name
 | `DeleteApiKeyUseCase` | `DeleteApiKeyCommand(userId, apiKeyId)` | nothing |
 | `DismissApiKeyUseCase` | `DismissApiKeyCommand(userId, apiKeyId)` | nothing |
 | `CancelApiKeyChangeUseCase` | `CancelApiKeyChangeCommand(userId, apiKeyId)` | nothing |
-| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version)` | nothing |
-| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, failureReason)` | nothing |
+| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version, serviceId)` | nothing |
+| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, serviceId, failureReason)` | nothing |
 | `VerifyApiKeyUseCase` | `VerifyApiKeyQuery(accessId, accessSecret)` | `VerifiedApiKey` |
 
 Notes: `GetApiKeyHandler` and `VerifyApiKeyHandler` run in read-only transactions and `IssueApiKeyHandler` is
@@ -415,7 +417,7 @@ flowchart LR
     Issuer -.->|picked by config as| IssueCredP
     V1Verifier -.->|implements| VerifierP
     ApiKeysAdapter --> JpaRepo
-    ApiKeysAdapter -->|writes domain events| OutboxRepo
+    ApiKeysAdapter -->|writes projection commands| OutboxRepo
     Cfg -->|exposes current CredentialIssuer as| IssueCredP
 ```
 
@@ -446,7 +448,7 @@ sequenceDiagram
     Key-->>H: true (false means nothing changed, stop here)
     H->>Ad: save(key)
     Ad->>DB: save key and pending change
-    Ad->>Key: pullDomainEvents()
+    Ad->>Key: pullProjectionCommands()
     Ad->>DB: insert outbox row (same transaction)
     DB-->>H: commit (a failing insert rolls the key change back)
     H-->>Ctl: ApiKeyView
@@ -558,7 +560,7 @@ Database objects (schema `access`): `api_keys`, `pending_changes`, `api_key_perm
 | I want to... | Change |
 |---|---|
 | Add a permission scope (e.g. `MONITORING`) | One constant in `shared/access/Scope` with its allowed levels. Permissions, updates, storage, web and event payloads all work from the enum. `ScopeTest` checks the new constant automatically. |
-| Add an event type | New record in `shared/access/events/domain`, add it to `ApiKeyProjectionCommand` `permits`, register it in `ApiKey`, add it to `EventOutboxEntity.of` (in `infrastructure/persistence/models`; the compiler forces this) and add `EventOutboxEntity.from(...)`. Update `ApiKeyProjectionCommandContractTest` and `access-context.md`. |
+| Add an event type | New record in `shared/access/events/outbound`, add it to `ApiKeyProjectionCommand` `permits`, register it in `ApiKey`, add it to `EventOutboxEntity.of` (in `infrastructure/persistence/models`; the compiler forces this) and add `EventOutboxEntity.from(...)`. Update `ApiKeyProjectionCommandContractTest` and `access-context.md`. |
 | Add a use case | A new package `application/usecase/<name>` with the `*UseCase`, the command or query (and result) and a package-private `*Handler` (writing handlers go through `RetriedTransaction`), a method on `ApiKey` if there is a rule, a controller method, and a handler test in the same test package using `InMemoryApiKeys`. |
 | Change the key format | Add `v2/V2CredentialIssuer` (implements `CredentialIssuer`) and `v2/V2CredentialVerifier` (implements `CredentialVerifier`), then set `access.key-format.current=V2`. Keep the V1 verifier so old keys still work. |
 | Add or change an endpoint | A method in `presentation/api/controllers/ApiKeyController` mapping to a command, DTOs in `presentation/api/dtos`, errors in `ApiKeyExceptionHandler`. Tests: `ApiKeyControllerTest` and `ApiKeyHttpIntegrationTest`. |

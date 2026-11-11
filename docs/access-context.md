@@ -42,7 +42,7 @@ Ubiquitous language and rules of the Access context (supporting subdomain, contr
 | **Confirm / Reject** | Data plane's answer for a specific revision. Confirm applies the change; reject marks it failed. |
 | **Dismiss** | The owner acknowledges that they understand the state of their key: it clears a failed change, or removes a key that is finished (`PROVISIONING_FAILED`, `DELETED`). It never emits anything; compensating commands go out when the change fails. Replaces user-facing "acknowledgeFailure". Nothing disappears without a dismiss. |
 | **Cancel** | The owner withdraws a change that is still pending. It fails with `CANCELLED_BY_USER` and is compensated at once, like any failure. |
-| **Incoming events** | What the data plane sends back, as plain records in `shared/access/events/inbound`: `ApiKeyChangeConfirmed(apiKeyId, version)` (it applied that revision) and `ApiKeyChangeRejected(apiKeyId, version, failureReason)` (that revision failed). They are the inputs of `ConfirmChangeUseCase` and `RejectChangeUseCase`; the internal HTTP controller builds them from the path and body. Access does not emit them and writes nothing to the outbox for them. A reject does emit the compensating projection command. |
+| **Incoming events** | What the data plane sends back, as plain records in `shared/access/events/inbound`: `ApiKeyChangeConfirmed(apiKeyId, version, serviceId)` (it applied that revision) and `ApiKeyChangeRejected(apiKeyId, version, serviceId, failureReason)` (that revision failed). They are the inputs of `ConfirmChangeUseCase` and `RejectChangeUseCase`; the internal HTTP controller builds them from the path and body. `serviceId` names the downstream service that answered; it is validated (required, non-blank) and logged, not persisted. Access does not emit them and writes nothing to the outbox for them. A reject does emit the compensating projection command. |
 | **Compensating command** | Emitted the moment a change fails, at the next revision, because the data plane may have applied it anyway: failed create -> `DeleteApiKeyProjectionCommand`; failed update -> `UpdateApiKeyProjectionCommand` restating the confirmed state; failed delete -> `CreateApiKeyProjectionCommand` restoring the key (it carries the secret hash, so it also works when the key is gone downstream). |
 | **Deleted (tombstone)** | A confirmed delete. The key stays visible, cannot authenticate, and accepts no changes until the owner dismisses it. |
 | **Failure Reason** | Exactly four: `REJECTED` (data plane nack), `CONFIRM_TIMEOUT` (no confirm/reject in time), `OUTBOX_PUBLISH_FAILURE`, `CANCELLED_BY_USER`. |
@@ -137,7 +137,7 @@ States are derived from the confirmed state and the pending change; they are not
 | `ApiKeyController` / `ApiKeyInternalController` in `web` | `presentation.api.controllers`, depend on the use cases only; DTOs in `presentation.api.dtos` |
 | `ApiKeyFacadeImpl` | `presentation.facade.ApiKeyFacadeImpl`, calls `VerifyApiKeyUseCase` |
 | `acknowledgeFailure` (user-facing) | Dismiss: `POST /api/v1/user/{userId}/apikey/{apiKeyId}/dismiss`; new: Cancel `POST /api/v1/user/{userId}/apikey/{apiKeyId}/cancel` |
-| six `/internal/apikey/{id}/{creation,update,deletion}/{success,failure}` endpoints | `POST /internal/apikey/{id}/changes/{revision}/confirm` and `/reject` (optional body `{"reason": ...}`, default `REJECTED`) |
+| six `/internal/apikey/{id}/{creation,update,deletion}/{success,failure}` endpoints | `POST /internal/apikey/{id}/changes/{revision}/confirm` and `/reject` (required body `{"serviceId": "..."}`; reject also takes an optional `"reason"`, default `REJECTED`; `serviceId` names the downstream service answering and is logged, not stored) |
 | schema `api_key`, tables `api_keys`, `api_key_next`, `outbox` | schema `access`, tables `api_keys`, `pending_changes`, `outbox` |
 | Delivery Service (other context) | Dispatcher |
 
@@ -150,7 +150,7 @@ Pragmatic clean architecture: the layers are `domain`, `application`, `presentat
 ```
 me.dhiren9939.backend
 ├── shared/access/                public contracts, no behaviour
-│   ├── events/domain/            ApiKeyProjectionCommand (sealed) with Create/Update/DeleteApiKeyProjectionCommand (outgoing)
+│   ├── events/outbound/            ApiKeyProjectionCommand (sealed) with Create/Update/DeleteApiKeyProjectionCommand (outgoing)
 │   ├── events/inbound/           ApiKeyChangeConfirmed, ApiKeyChangeRejected, FailureReason (incoming from the data plane)
 │   ├── Permissions, Scope, AccessLevel, InvalidPermissionsException
 │   └── ApiKeyFacade, ApiKeyVerifyDto, ApiKeyVerificationFailure, ApiKeyParsingFailure
@@ -206,8 +206,8 @@ Each is a use case interface in its own package `application.usecase.<name>` wit
 | `DeleteApiKeyUseCase` | `DeleteApiKeyCommand(userId, apiKeyId)` | none |
 | `DismissApiKeyUseCase` | `DismissApiKeyCommand(userId, apiKeyId)` | none |
 | `CancelApiKeyChangeUseCase` | `CancelApiKeyChangeCommand(userId, apiKeyId)` | none |
-| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version)` | none |
-| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, failureReason)` | none |
+| `ConfirmChangeUseCase` | incoming event `ApiKeyChangeConfirmed(apiKeyId, version, serviceId)` | none |
+| `RejectChangeUseCase` | incoming event `ApiKeyChangeRejected(apiKeyId, version, serviceId, failureReason)` | none |
 | `VerifyApiKeyUseCase` | `VerifyApiKeyQuery(accessId, accessSecret)` | `VerifiedApiKey` |
 
 Output abstractions: `ApiKeys` (in `domain.repositories`: load and store aggregates), `IssueCredentialPort` (new credential in the current key format), `CredentialVerifier` (secret vs stored hash, per key format); both of these are in `application.interfaces`.
@@ -221,7 +221,7 @@ Failures are mapped to HTTP by `ApiKeyExceptionHandler` (`presentation.api.contr
 
 ## Outbox
 
-Projection commands are registered by the `ApiKey` aggregate itself (`issue`, `requestUpdate`, `requestDeletion`, and `reject`/`cancelPendingChange`, which register the compensating command) and collected with `pullDomainEvents()`. `ApiKeysAdapter` writes each one to the outbox itself (`EventOutboxEntity.of(event)`) right after `save`/`delete`, in the caller's transaction, so if the row cannot be written the key change rolls back too. Confirming a change registers nothing; the confirm and reject coming in from the data plane are the incoming events described above, not outbox entries. Event types are `apiKey.projection.create`, `apiKey.projection.update` and `apiKey.projection.delete`.
+Projection commands are registered by the `ApiKey` aggregate itself (`issue`, `requestUpdate`, `requestDeletion`, and `reject`/`cancelPendingChange`, which register the compensating command) and collected with `pullProjectionCommands()`. `ApiKeysAdapter` writes each one to the outbox itself (`EventOutboxEntity.of(event)`) right after `save`/`delete`, in the caller's transaction, so if the row cannot be written the key change rolls back too. Confirming a change registers nothing; the confirm and reject coming in from the data plane are the incoming events described above, not outbox entries. Event types are `apiKey.projection.create`, `apiKey.projection.update` and `apiKey.projection.delete`.
 
 `ApiKeyProjectionCommand` is a `sealed interface` that permits exactly `CreateApiKeyProjectionCommand`, `UpdateApiKeyProjectionCommand` and `DeleteApiKeyProjectionCommand`. Adding an event type means adding it to `permits`, which makes the listener's exhaustive `switch` fail to compile until it is handled.
 

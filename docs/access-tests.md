@@ -29,7 +29,7 @@ Run from `backend/`. Numbers below were measured on this repo (Windows, Docker D
 src/test/java/me/dhiren9939/backend
 ├── ArchitectureTest                                 layering rules (ArchUnit)
 ├── BackendApplicationTests                          Spring context loads on a real Postgres
-├── shared/access/                                   Permissions, Scope; events/domain: outgoing command contract
+├── shared/access/                                   Permissions, Scope; events/outbound: outgoing command contract
 ├── access/domain/aggregates/apikey/                 ApiKey aggregate, PermissionChanges
 ├── access/application/usecase/<name>/               one test class per handler, in the handler's own package
 ├── access/application/usecase/                      test-only helpers: Fixtures, InMemoryApiKeys (a fake ApiKeys)
