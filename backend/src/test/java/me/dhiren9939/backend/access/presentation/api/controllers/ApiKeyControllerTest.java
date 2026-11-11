@@ -192,19 +192,36 @@ class ApiKeyControllerTest {
 
     @Test
     void theDataPlaneAnswersCarryTheRevisionAndRejectDefaultsToRejected() throws Exception {
-        mvc.perform(post("/internal/apikey/{id}/changes/{revision}/confirm", KEY_ID, 3))
+        mvc.perform(post("/internal/apikey/{id}/changes/{revision}/confirm", KEY_ID, 3)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceId\":\"data-plane\"}"))
                 .andExpect(status().isNoContent());
-        mvc.perform(post("/internal/apikey/{id}/changes/{revision}/reject", KEY_ID, 3))
+        mvc.perform(post("/internal/apikey/{id}/changes/{revision}/reject", KEY_ID, 3)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceId\":\"data-plane\"}"))
                 .andExpect(status().isNoContent());
         mvc.perform(post("/internal/apikey/{id}/changes/{revision}/reject", KEY_ID, 4)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"CONFIRM_TIMEOUT\"}"))
+                        .content("{\"serviceId\":\"data-plane\",\"reason\":\"CONFIRM_TIMEOUT\"}"))
                 .andExpect(status().isNoContent());
-
         assertThat(received).containsExactly(
-                new ApiKeyChangeConfirmed(KEY_ID, 3),
-                new ApiKeyChangeRejected(KEY_ID, 3, FailureReason.REJECTED),
-                new ApiKeyChangeRejected(KEY_ID, 4, FailureReason.CONFIRM_TIMEOUT));
+                new ApiKeyChangeConfirmed(KEY_ID, 3, "data-plane"),
+                new ApiKeyChangeRejected(KEY_ID, 3, "data-plane", FailureReason.REJECTED),
+                new ApiKeyChangeRejected(KEY_ID, 4, "data-plane", FailureReason.CONFIRM_TIMEOUT));
+    }
+
+    @Test
+    void aDataPlaneAnswerWithoutAServiceIdIsRefused() throws Exception {
+        for (String answer : new String[]{"confirm", "reject"}) {
+            mvc.perform(post("/internal/apikey/{id}/changes/{revision}/" + answer, KEY_ID, 3))
+                    .andExpect(status().isBadRequest());
+            mvc.perform(post("/internal/apikey/{id}/changes/{revision}/" + answer, KEY_ID, 3)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"serviceId\":\" \"}"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        assertThat(received).isEmpty();
     }
 
     @Test

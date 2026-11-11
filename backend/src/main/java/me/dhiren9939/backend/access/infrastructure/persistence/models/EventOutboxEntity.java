@@ -5,10 +5,10 @@ import lombok.*;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.shared.access.Scope;
-import me.dhiren9939.backend.shared.access.events.domain.CreateApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.domain.ApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.domain.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.ApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.UpdateApiKeyProjectionCommand;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * JPA representation of an API key lifecycle event stored in the outbox.
+ * JPA representation of an outgoing API key projection command stored in the outbox.
  */
 @Entity
 @Getter

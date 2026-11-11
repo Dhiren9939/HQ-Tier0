@@ -1,4 +1,4 @@
-package me.dhiren9939.backend.shared.access.events.domain;
+package me.dhiren9939.backend.shared.access.events.outbound;
 
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Permissions;
@@ -12,7 +12,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The lifecycle events are a published contract consumed by other contexts.
+ * The projection commands are a published contract consumed by other contexts.
  * Changing a field name, order or event type string is a contract change and must fail here.
  */
 class ApiKeyProjectionCommandContractTest {

@@ -68,7 +68,7 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
     /** Issues a key and has the data plane confirm its creation, so it is ACTIVE. */
     protected IssuedApiKeyResult issueActive(UUID owner, String name, Lifetime lifetime, Permissions permissions) {
         IssuedApiKeyResult issued = issue(owner, name, lifetime, permissions);
-        confirmChange.handle(new ApiKeyChangeConfirmed(issued.key().apiKeyId(), 1));
+        confirmChange.handle(new ApiKeyChangeConfirmed(issued.key().apiKeyId(), 1, "data-plane"));
         return issued;
     }
 

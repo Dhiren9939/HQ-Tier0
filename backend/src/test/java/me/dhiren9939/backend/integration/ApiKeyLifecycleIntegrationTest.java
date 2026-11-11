@@ -122,7 +122,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         IssuedApiKeyResult issued = issue(owner, "k", Lifetime.NEVER,
                 ingestionWrite().with(Scope.TENANT, AccessLevel.READ));
 
-        confirmChange.handle(new ApiKeyChangeConfirmed(issued.key().apiKeyId(), 1));
+        confirmChange.handle(new ApiKeyChangeConfirmed(issued.key().apiKeyId(), 1, "data-plane"));
 
         ApiKeyView key = view(owner, issued.key().apiKeyId());
         assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
@@ -213,7 +213,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "renamed", Lifetime.ONE_MONTH,
                 new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ_WRITE, Scope.INGESTION, AccessLevel.NONE))));
 
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2, "data-plane"));
 
         ApiKeyView key = view(owner, id);
         assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
@@ -254,11 +254,11 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
                 .isInstanceOf(ApiKeyUpdateFailure.class);
         assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(owner, id)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 1)))
+        assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 1, "data-plane")))
                 .as("revision 1 is no longer the pending one").isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 3)))
+        assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 3, "data-plane")))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, FailureReason.REJECTED)))
+        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", FailureReason.REJECTED)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
 
         assertThat(outbox()).hasSize(events);
@@ -285,7 +285,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "lost", null, null));
         int events = outbox().size();
 
-        rejectChange.handle(new ApiKeyChangeRejected(id, 2, FailureReason.CONFIRM_TIMEOUT));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 2, "data-plane", FailureReason.CONFIRM_TIMEOUT));
 
         List<OutboxRow> afterReject = outbox();
         assertThat(afterReject).hasSize(events + 1);
@@ -334,7 +334,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(accessId, issued.accessSecret())))
                 .as("a pending delete still authenticates until confirmed").isNotNull();
 
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2, "data-plane"));
 
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.DELETED);
         assertThat(jdbc.queryForObject("select deleted_at is not null from access.api_keys", Boolean.class)).isTrue();
@@ -362,7 +362,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         UUID id = issueActive(owner, "survivor", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
 
-        rejectChange.handle(new ApiKeyChangeRejected(id, 2, FailureReason.REJECTED));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 2, "data-plane", FailureReason.REJECTED));
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
 
         List<OutboxRow> afterReject = outbox();
@@ -412,7 +412,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     void failedCreation() {
         UUID id = issue(owner, "never", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
 
-        rejectChange.handle(new ApiKeyChangeRejected(id, 1, FailureReason.OUTBOX_PUBLISH_FAILURE));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", FailureReason.OUTBOX_PUBLISH_FAILURE));
 
         ApiKeyView failed = view(owner, id);
         assertThat(failed.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);

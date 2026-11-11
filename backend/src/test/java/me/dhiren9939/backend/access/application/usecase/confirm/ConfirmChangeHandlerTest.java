@@ -12,7 +12,7 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -35,7 +35,7 @@ class ConfirmChangeHandlerTest {
     }
 
     private void confirm(ApiKey key, long revision) {
-        handler.handle(new ApiKeyChangeConfirmed(key.getApiKeyId(), revision));
+        handler.handle(new ApiKeyChangeConfirmed(key.getApiKeyId(), revision, "data-plane"));
     }
 
     @Test
@@ -80,7 +80,7 @@ class ConfirmChangeHandlerTest {
 
     @Test
     void unknownKeyIsNotFound() {
-        assertThatThrownBy(() -> handler.handle(new ApiKeyChangeConfirmed(UUID.randomUUID(), 1)))
+        assertThatThrownBy(() -> handler.handle(new ApiKeyChangeConfirmed(UUID.randomUUID(), 1, "data-plane")))
                 .isInstanceOf(ApiKeyNotFoundException.class);
     }
 

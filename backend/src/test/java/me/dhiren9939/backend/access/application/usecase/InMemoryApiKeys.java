@@ -2,7 +2,7 @@ package me.dhiren9939.backend.access.application.usecase;
 
 import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.shared.access.events.domain.ApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.ApiKeyProjectionCommand;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -12,7 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * In-memory stand-in for the {@link ApiKeys} port. Like the real adapter it collects the domain events a key
+ * In-memory stand-in for the {@link ApiKeys} port. Like the real adapter it collects the projection commands a key
  * registered whenever it is saved or deleted, so tests can assert on what would reach the outbox.
  */
 public class InMemoryApiKeys implements ApiKeys {
@@ -23,7 +23,7 @@ public class InMemoryApiKeys implements ApiKeys {
 
     /** Puts a key into the store as if it had been persisted earlier; its pending events are discarded. */
     public ApiKey existing(ApiKey key) {
-        key.pullDomainEvents();
+        key.pullProjectionCommands();
         store.put(key.getApiKeyId(), key);
         return key;
     }
@@ -61,7 +61,7 @@ public class InMemoryApiKeys implements ApiKeys {
     }
 
     private void record(ApiKey key) {
-        publishedEvents.addAll(key.pullDomainEvents());
+        publishedEvents.addAll(key.pullProjectionCommands());
     }
 
     @Override

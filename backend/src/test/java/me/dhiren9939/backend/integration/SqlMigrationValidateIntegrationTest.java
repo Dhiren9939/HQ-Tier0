@@ -125,16 +125,16 @@ class SqlMigrationValidateIntegrationTest {
 
         IssuedApiKeyResult issued = issueApiKey.handle(new IssueApiKeyCommand(owner, "sql", Lifetime.ONE_DAY, permissions));
         UUID id = issued.key().apiKeyId();
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 1));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 1, "data-plane"));
         assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(issued.key().accessId(), issued.accessSecret())).permissions())
                 .isEqualTo(permissions);
 
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "sql2", Lifetime.ONE_MONTH,
                 new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ))));
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2, "data-plane"));
 
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 3));
+        confirmChange.handle(new ApiKeyChangeConfirmed(id, 3, "data-plane"));
         dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
 
         assertThat(jdbc.queryForList("select event_type from access.outbox order by change_version", String.class))

@@ -52,13 +52,13 @@ class ApiKeysAdapterTest {
         verify(outboxRepository).save(row.capture());
         assertThat(row.getValue().getEventType()).isEqualTo("apiKey.projection.create");
         assertThat(row.getValue().getApiKeyId()).isEqualTo(key.getApiKeyId());
-        assertThat(key.pullDomainEvents()).as("events are drained once written").isEmpty();
+        assertThat(key.pullProjectionCommands()).as("events are drained once written").isEmpty();
     }
 
     @Test
     void savingAKeyWithoutNewEventsWritesNothing() {
         ApiKey key = newKey();
-        key.pullDomainEvents();
+        key.pullProjectionCommands();
         when(repository.save(key)).thenReturn(key);
 
         adapter.save(key);

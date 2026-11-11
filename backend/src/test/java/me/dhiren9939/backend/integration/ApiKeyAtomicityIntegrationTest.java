@@ -100,7 +100,7 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
         UUID id = jdbcIssueNamedBoom();
         int events = outbox().size();
 
-        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, FailureReason.REJECTED)))
+        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", FailureReason.REJECTED)))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.PROVISIONING);

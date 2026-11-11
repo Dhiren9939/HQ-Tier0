@@ -14,7 +14,7 @@ import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
 import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.events.domain.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.UpdateApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

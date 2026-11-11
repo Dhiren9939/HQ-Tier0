@@ -10,10 +10,10 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.shared.access.Scope;
-import me.dhiren9939.backend.shared.access.events.domain.ApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.domain.CreateApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.domain.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.ApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.UpdateApiKeyProjectionCommand;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -30,8 +30,8 @@ import java.util.UUID;
  * <p>The attributes held directly on this class (name, permissions, expiry) are the <em>confirmed</em> ones.
  * A requested change lives in {@link #pendingChange} until the data plane confirms it.</p>
  *
- * <p>Every command that requests a revision also registers the matching lifecycle event. The persistence
- * layer collects them with {@link #pullDomainEvents()} after saving the key.</p>
+ * <p>Every command that requests a revision also registers the matching projection command. The persistence
+ * layer collects them with {@link #pullProjectionCommands()} after saving the key.</p>
  */
 @Entity
 @Getter
@@ -95,7 +95,7 @@ public class ApiKey {
     /** Events registered by commands and not yet collected. Not persisted. */
     @Transient
     @Getter(AccessLevel.NONE)
-    private final List<ApiKeyProjectionCommand> domainEvents = new ArrayList<>();
+    private final List<ApiKeyProjectionCommand> projectionCommands = new ArrayList<>();
 
     // ---------------------------------------------------------------------------------------------
     // Commands
@@ -117,7 +117,7 @@ public class ApiKey {
         key.confirmedRevision = 0;
         key.pendingChange = PendingChange.requested(1, ChangeKind.CREATE, createdAt,
                 apiKeyName, permissions, expiresAt);
-        key.domainEvents.add(key.createdEvent(createdAt));
+        key.projectionCommands.add(key.createdEvent(createdAt));
         return key;
     }
 
@@ -157,7 +157,7 @@ public class ApiKey {
 
         revision++;
         pendingChange = PendingChange.requested(revision, ChangeKind.UPDATE, now, name, updatedPermissions, expiry);
-        domainEvents.add(updatedEvent(now));
+        projectionCommands.add(updatedEvent(now));
         return true;
     }
 
@@ -168,7 +168,7 @@ public class ApiKey {
         revision++;
         pendingChange = PendingChange.requested(revision, ChangeKind.DELETE, now,
                 apiKeyName, getPermissions(), expiresAt);
-        domainEvents.add(deletedEvent(now));
+        projectionCommands.add(deletedEvent(now));
     }
 
     /** The data plane confirmed the pending change at {@code revision}. */
@@ -215,7 +215,7 @@ public class ApiKey {
         change.fail(reason);
 
         this.revision++;
-        domainEvents.add(switch (change.getKind()) {
+        projectionCommands.add(switch (change.getKind()) {
             case CREATE -> deletedEvent(now, desiredState());
             case UPDATE -> updatedEvent(now, confirmedState());
             case DELETE -> createdEvent(now, confirmedState());
@@ -239,9 +239,9 @@ public class ApiKey {
     }
 
     /** Returns the events registered since the last call, in order, and forgets them. */
-    public List<ApiKeyProjectionCommand> pullDomainEvents() {
-        List<ApiKeyProjectionCommand> events = List.copyOf(domainEvents);
-        domainEvents.clear();
+    public List<ApiKeyProjectionCommand> pullProjectionCommands() {
+        List<ApiKeyProjectionCommand> events = List.copyOf(projectionCommands);
+        projectionCommands.clear();
         return events;
     }
 

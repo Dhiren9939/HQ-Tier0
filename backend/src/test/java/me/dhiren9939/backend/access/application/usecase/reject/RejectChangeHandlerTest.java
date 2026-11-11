@@ -12,7 +12,7 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -35,7 +35,7 @@ class RejectChangeHandlerTest {
     }
 
     private void reject(ApiKey key, long revision, FailureReason reason) {
-        handler.handle(new ApiKeyChangeRejected(key.getApiKeyId(), revision, reason));
+        handler.handle(new ApiKeyChangeRejected(key.getApiKeyId(), revision, "data-plane", reason));
     }
 
     @Test
@@ -83,7 +83,7 @@ class RejectChangeHandlerTest {
 
     @Test
     void unknownKeyIsNotFound() {
-        assertThatThrownBy(() -> handler.handle(new ApiKeyChangeRejected(UUID.randomUUID(), 1, FailureReason.REJECTED)))
+        assertThatThrownBy(() -> handler.handle(new ApiKeyChangeRejected(UUID.randomUUID(), 1, "data-plane", FailureReason.REJECTED)))
                 .isInstanceOf(ApiKeyNotFoundException.class);
     }
 

@@ -7,7 +7,7 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.shared.access.events.domain.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

@@ -5,10 +5,10 @@ package me.dhiren9939.backend.access.infrastructure.persistence.models;
 import me.dhiren9939.backend.shared.access.AccessLevel;
 import me.dhiren9939.backend.shared.access.Scope;
 import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.events.domain.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.shared.access.events.domain.DeleteApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.domain.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.shared.access.events.outbound.UpdateApiKeyProjectionCommand;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -16,7 +16,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Pins down how domain events map to outbox rows. */
+/** Pins down how projection commands map to outbox rows. */
 class EventOutboxEntityTest {
 
     private static final Instant OCCURRED_AT = Instant.parse("2026-01-15T12:00:00Z");
