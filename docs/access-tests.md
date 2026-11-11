@@ -86,7 +86,7 @@ adapter in one important way: whenever a key is saved or deleted it collects the
 | `V1CredentialTest` (5) | Pure Java | Issued credentials carry the `V1_` prefix and a hash of the secret; every credential is different; the verifier accepts the right secret and rejects others; a malformed stored hash never matches (returns false instead of throwing). |
 | `ApiKeyConfigTest` (3) | Pure Java | New credentials use the configured key format; matching is case-insensitive; a format nobody can issue fails fast at startup. |
 
-### `ArchitectureTest` (12)
+### `ArchitectureTest` (14)
 
 ArchUnit reads the compiled production classes and fails the build if a layer imports something it should not.
 The rules enforced:
@@ -103,6 +103,8 @@ The rules enforced:
 10. No field injection (`@Autowired`, `@Inject`).
 11. `*Handler` classes in `application.usecase..` are not public.
 12. No package cycles among the four layers inside `access`.
+13. User use cases (`usecase.user..`) and service use cases (`usecase.service..`) never depend on each other.
+14. The user API controller (`ApiKeyController`) only calls user use cases; the internal controller and the facade only call service use cases.
 
 ## Integration tests (41)
 
