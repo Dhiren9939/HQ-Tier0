@@ -31,7 +31,7 @@ src/test/java/me/dhiren9939/backend
 ├── BackendApplicationTests                          Spring context loads on a real Postgres
 ├── shared/access/                                   Permissions, Scope; events/outbound: outgoing command contract
 ├── access/domain/aggregates/apikey/                 ApiKey aggregate, PermissionChanges
-├── access/application/usecase/<name>/               one test class per handler, in the handler's own package
+├── access/application/usecase/{user,service}/<name>/   one test class per handler, in the handler's own package
 ├── access/application/usecase/                      test-only helpers: Fixtures, InMemoryApiKeys (a fake ApiKeys)
 ├── access/presentation/api/controllers/             REST controller (MockMvc, no database), test-only VerifyProbeController
 ├── access/infrastructure/persistence/               JPA mapping check (no database)
@@ -54,7 +54,7 @@ src/test/java/me/dhiren9939/backend
 | `ScopeTest` (6) | Loops over `Scope.values()` | Every scope allows `NONE` and at least one real level, and every allowed level round-trips through `Permissions`. A new scope is covered automatically and fails here if it is declared inconsistently. |
 | `ApiKeyProjectionCommandContractTest` (7) | Reflection over the event records | The published event shape: exact field names and order for created, updated and deleted payloads, event-type strings (`apiKey.projection.create`, `apiKey.projection.update`, `apiKey.projection.delete`), no expiry field, both `occurredAt` and `emittedAt` present, permission names are wire values, and `ApiKeyProjectionCommand` is sealed and permits exactly those three records. Changing a field fails this test on purpose: it is a contract change. |
 
-### Use-case handlers (`access/application/usecase/<name>`)
+### Use-case handlers (`access/application/usecase/{user,service}/<name>`)
 
 Each handler test sits in its handler's package, because the handlers are package-private. They use `InMemoryApiKeys`
 (a hand-written fake of the `ApiKeys` repository, not Mockito) and `Fixtures` (fixed clock, test user IDs, key

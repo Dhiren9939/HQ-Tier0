@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
@@ -25,6 +26,10 @@ class ArchitectureTest {
     private static final String PRESENTATION = ROOT + ".access.presentation..";
     private static final String INFRASTRUCTURE = ROOT + ".access.infrastructure..";
     private static final String SHARED = ROOT + ".shared..";
+    /** What the key's owner asks for: issue, get, update, delete, dismiss, cancel. */
+    private static final String USER_USE_CASES = ROOT + ".access.application.usecase.user..";
+    /** What other services ask for: confirm, reject, verify. */
+    private static final String SERVICE_USE_CASES = ROOT + ".access.application.usecase.service..";
 
     private static JavaClasses mainClasses;
 
@@ -128,6 +133,26 @@ class ArchitectureTest {
                 .and().haveSimpleNameEndingWith("Handler")
                 .should().notBePublic();
         rule.check(mainClasses);
+    }
+
+    @Test
+    void userUseCasesAndServiceUseCasesNeverDependOnEachOther() {
+        noClasses().that().resideInAPackage(USER_USE_CASES)
+                .should().dependOnClassesThat().resideInAPackage(SERVICE_USE_CASES)
+                .check(mainClasses);
+        noClasses().that().resideInAPackage(SERVICE_USE_CASES)
+                .should().dependOnClassesThat().resideInAPackage(USER_USE_CASES)
+                .check(mainClasses);
+    }
+
+    @Test
+    void theUserApiOnlyCallsUserUseCasesAndTheServiceEntryPointsOnlyCallServiceUseCases() {
+        noClasses().that().haveSimpleName("ApiKeyController")
+                .should().dependOnClassesThat().resideInAPackage(SERVICE_USE_CASES)
+                .check(mainClasses);
+        noClasses().that().haveSimpleName("ApiKeyInternalController").or().haveSimpleName("ApiKeyFacadeImpl")
+                .should().dependOnClassesThat().resideInAPackage(USER_USE_CASES)
+                .check(mainClasses);
     }
 
     @Test

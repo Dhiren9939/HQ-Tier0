@@ -1,7 +1,7 @@
 package me.dhiren9939.backend.integration;
 
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
-import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;

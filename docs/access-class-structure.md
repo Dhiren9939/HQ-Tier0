@@ -320,7 +320,7 @@ flowchart LR
         Tx["RetriedTransaction"]
         Retry["OptimisticLockRetry"]
     end
-    Parsed["usecase/verify: ParsedApiKey"]
+    Parsed["usecase/service/verify: ParsedApiKey"]
     subgraph portout["domain/repositories and application/interfaces"]
         ApiKeysP["ApiKeys"]
         IssueCredP["IssueCredentialPort"]
@@ -358,7 +358,7 @@ flowchart LR
     VerifyH --> Parsed
 ```
 
-Inputs and outputs of each use case (all records, each in its own `usecase/<name>` package except `ApiKeyView`, which is in `application/model`):
+Inputs and outputs of each use case (all records, each in its own `usecase/user/<name>` or `usecase/service/<name>` package except `ApiKeyView`, which is in `application/model`):
 
 | Use case | Takes | Returns |
 |---|---|---|
@@ -377,7 +377,7 @@ Notes: `GetApiKeyHandler` and `VerifyApiKeyHandler` run in read-only transaction
 goes through `RetriedTransaction`: a fresh `REQUIRES_NEW` transaction per attempt, retried through
 `OptimisticLockRetry` when another writer changed the key first. Each retry re-reads the key, so the domain rules
 decide the outcome against its current state. When retries run out the caller gets `ApiKeyUpdateFailure` (409).
-`ParsedApiKey` (in `usecase/verify`) is an internal record that splits `V1_xxx` into access ID, secret and key format.
+`ParsedApiKey` (in `usecase/service/verify`) is an internal record that splits `V1_xxx` into access ID, secret and key format.
 `RetriedTransaction` and `OptimisticLockRetry` are public classes in `application/transaction` because handlers in
 several packages use them; the handlers themselves stay package-private.
 
@@ -523,7 +523,7 @@ me.dhiren9939.backend
     │   ├── exceptions/                     ApiKeyNotFoundException, ApiKeyUpdateFailure
     │   └── repositories/ApiKeys            storage contract for the aggregate
     ├── application/
-    │   ├── usecase/                        one package per operation, each with its *UseCase, *Command or *Query
+    │   ├── usecase/                        user/ and service/, one package per operation, each with its *UseCase, *Command or *Query
     │   │   │                               and package-private *Handler:
     │   │   ├── issue/                      IssueApiKeyUseCase/Command/Handler, IssuedApiKeyResult
     │   │   ├── get/                        GetApiKeyUseCase/Query/Handler
@@ -561,7 +561,7 @@ Database objects (schema `access`): `api_keys`, `pending_changes`, `api_key_perm
 |---|---|
 | Add a permission scope (e.g. `MONITORING`) | One constant in `shared/access/Scope` with its allowed levels. Permissions, updates, storage, web and event payloads all work from the enum. `ScopeTest` checks the new constant automatically. |
 | Add an event type | New record in `shared/access/events/outbound`, add it to `ApiKeyProjectionCommand` `permits`, register it in `ApiKey`, add it to `EventOutboxEntity.of` (in `infrastructure/persistence/models`; the compiler forces this) and add `EventOutboxEntity.from(...)`. Update `ApiKeyProjectionCommandContractTest` and `access-context.md`. |
-| Add a use case | A new package `application/usecase/<name>` with the `*UseCase`, the command or query (and result) and a package-private `*Handler` (writing handlers go through `RetriedTransaction`), a method on `ApiKey` if there is a rule, a controller method, and a handler test in the same test package using `InMemoryApiKeys`. |
+| Add a use case | A new package `application/usecase/user/<name>` (the key owner asks for it) or `application/usecase/service/<name>` (another service asks for it) with the `*UseCase`, the command or query (and result) and a package-private `*Handler` (writing handlers go through `RetriedTransaction`), a method on `ApiKey` if there is a rule, a controller method, and a handler test in the same test package using `InMemoryApiKeys`. |
 | Change the key format | Add `v2/V2CredentialIssuer` (implements `CredentialIssuer`) and `v2/V2CredentialVerifier` (implements `CredentialVerifier`), then set `access.key-format.current=V2`. Keep the V1 verifier so old keys still work. |
 | Add or change an endpoint | A method in `presentation/api/controllers/ApiKeyController` mapping to a command, DTOs in `presentation/api/dtos`, errors in `ApiKeyExceptionHandler`. Tests: `ApiKeyControllerTest` and `ApiKeyHttpIntegrationTest`. |
 | Change the database schema | Edit the JPA mappings (`ApiKey`, `PendingChange`, `EventOutboxEntity` in `infrastructure/persistence/models`) **and** `V1__create_access_schema.sql`. The app itself uses `ddl-auto=update`; `SqlMigrationValidateIntegrationTest` fails if the SQL file and mappings disagree. |

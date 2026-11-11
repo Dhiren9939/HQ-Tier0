@@ -1,10 +1,10 @@
 package me.dhiren9939.backend.integration;
 
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
-import me.dhiren9939.backend.access.application.usecase.delete.DeleteApiKeyCommand;
-import me.dhiren9939.backend.access.application.usecase.dismiss.DismissApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
 import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
-import me.dhiren9939.backend.access.application.usecase.update.UpdateApiKeyCommand;
+import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;

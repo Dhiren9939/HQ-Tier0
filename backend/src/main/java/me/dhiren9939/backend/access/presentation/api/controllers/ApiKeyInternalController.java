@@ -6,9 +6,9 @@ import me.dhiren9939.backend.access.presentation.api.dtos.RejectRequestDto;
 
 import lombok.RequiredArgsConstructor;
 import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
-import me.dhiren9939.backend.access.application.usecase.confirm.ConfirmChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.service.confirm.ConfirmChangeUseCase;
 import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
-import me.dhiren9939.backend.access.application.usecase.reject.RejectChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.service.reject.RejectChangeUseCase;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

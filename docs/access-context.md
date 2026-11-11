@@ -161,9 +161,9 @@ me.dhiren9939.backend
     │   ├── exceptions/           ApiKeyNotFoundException, ApiKeyUpdateFailure
     │   └── repositories/         ApiKeys (the storage contract; the adapter that implements it is in infrastructure)
     ├── application/
-    │   ├── usecase/<name>/       one package per operation (issue, get, update, delete, dismiss, cancel, confirm,
-    │   │                         reject, verify): the *UseCase interface, its *Command/*Query and result record,
-    │   │                         and the package-private *Handler; verify also holds ParsedApiKey and VerifiedApiKey
+    │   ├── usecase/              user/<name> (issue, get, update, delete, dismiss, cancel: what the key's owner asks for)
+    │   │                         and service/<name> (confirm, reject, verify: what other services ask for). Each holds the *UseCase interface,
+    │   │                         its *Command/*Query and result record, and the package-private *Handler; verify also holds ParsedApiKey and VerifiedApiKey
     │   ├── model/                ApiKeyView (secret-free read model shared by several use cases)
     │   ├── transaction/          RetriedTransaction, OptimisticLockRetry
     │   └── interfaces/           IssueCredentialPort, CredentialVerifier

@@ -1,9 +1,9 @@
 package me.dhiren9939.backend.access.presentation.facade;
 
 import lombok.RequiredArgsConstructor;
-import me.dhiren9939.backend.access.application.usecase.verify.VerifiedApiKey;
-import me.dhiren9939.backend.access.application.usecase.verify.VerifyApiKeyQuery;
-import me.dhiren9939.backend.access.application.usecase.verify.VerifyApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.service.verify.VerifiedApiKey;
+import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyQuery;
+import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyUseCase;
 import me.dhiren9939.backend.shared.access.ApiKeyFacade;
 import me.dhiren9939.backend.shared.access.ApiKeyVerifyDto;
 import org.springframework.stereotype.Component;
