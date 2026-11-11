@@ -114,7 +114,7 @@ class ApiKeyTest {
             assertThat(key.getRevision()).isEqualTo(1);
             assertThat(key.getConfirmedRevision()).isZero();
             assertThat(key.getDeletedAt()).isNull();
-            assertThat(key.state()).isEqualTo(ApiKeyState.PROVISIONING);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.PROVISIONING);
 
             PendingChange pending = key.getPendingChange();
             assertThat(pending.getKind()).isEqualTo(ChangeKind.CREATE);
@@ -141,7 +141,7 @@ class ApiKeyTest {
             ApiKey key = provisioning();
 
             assertThat(key.isOwnedBy(USER_ID)).isTrue();
-            assertThat(key.state()).isEqualTo(ApiKeyState.PROVISIONING);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.PROVISIONING);
             assertThat(key.desiredState())
                     .isEqualTo(new DesiredState(NAME, NO_PERMISSIONS, ONE_MONTH_FROM_NOW));
         }
@@ -214,6 +214,50 @@ class ApiKeyTest {
     }
 
     @Nested
+    @DisplayName("state(now) and expiry")
+    class ExpiredState {
+        private final Instant afterExpiry = ONE_MONTH_FROM_NOW.plusSeconds(1);
+
+        @Test
+        void aConfirmedKeyPastItsExpiryIsExpired() {
+            assertThat(active().state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
+            assertThat(active().state(ONE_MONTH_FROM_NOW)).as("the expiry instant itself is still valid").isEqualTo(ApiKeyState.ACTIVE);
+            assertThat(active().state(afterExpiry)).isEqualTo(ApiKeyState.EXPIRED);
+        }
+
+        @Test
+        void aKeyThatNeverExpiresIsNeverExpired() {
+            ApiKey key = ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, NOW, null);
+            key.confirm(1, NOW);
+
+            assertThat(key.state(Instant.parse("2099-01-01T00:00:00Z"))).isEqualTo(ApiKeyState.ACTIVE);
+        }
+
+        @Test
+        @DisplayName("expiry takes precedence over a pending or failed change on a confirmed key")
+        void expiredBeatsPendingAndFailedChanges() {
+            assertThat(withPendingUpdate().state(afterExpiry)).isEqualTo(ApiKeyState.EXPIRED);
+            assertThat(withPendingDelete().state(afterExpiry)).isEqualTo(ApiKeyState.EXPIRED);
+            assertThat(withPendingUpdate().state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
+        }
+
+        @Test
+        void keysThatWereNeverConfirmedOrAreDeletedKeepTheirOwnState() {
+            assertThat(provisioning().state(afterExpiry)).isEqualTo(ApiKeyState.PROVISIONING);
+            assertThat(provisioningFailed().state(afterExpiry)).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
+            assertThat(deleted().state(afterExpiry)).isEqualTo(ApiKeyState.DELETED);
+        }
+
+        @Test
+        void anExpiredKeyCannotAuthenticateButCanStillBeRenewedOrDeleted() {
+            ApiKey key = active();
+
+            assertThat(key.canAuthenticate(afterExpiry)).isFalse();
+            assertThat(key.requestUpdate(new ApiKeyChanges(null, Lifetime.ONE_MONTH, null), afterExpiry)).isTrue();
+        }
+    }
+
+    @Nested
     @DisplayName("requestUpdate()")
     class RequestUpdate {
 
@@ -227,7 +271,7 @@ class ApiKeyTest {
             assertThat(changed).isTrue();
             assertThat(key.getRevision()).isEqualTo(2);
             assertThat(key.getApiKeyName()).isEqualTo(NAME);
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
 
             PendingChange pending = key.getPendingChange();
             assertThat(pending.getKind()).isEqualTo(ChangeKind.UPDATE);
@@ -316,7 +360,7 @@ class ApiKeyTest {
 
             assertThat(key.getRevision()).isEqualTo(1);
             assertThat(key.getPendingChange()).isNull();
-            assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
         }
 
         @Test
@@ -475,7 +519,7 @@ class ApiKeyTest {
             key.requestDeletion(LATER);
 
             assertThat(key.getRevision()).isEqualTo(2);
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
             PendingChange pending = key.getPendingChange();
             assertThat(pending.getKind()).isEqualTo(ChangeKind.DELETE);
             assertThat(pending.getStatus()).isEqualTo(ChangeStatus.PENDING);
@@ -535,7 +579,7 @@ class ApiKeyTest {
 
             key.confirm(1, LATER);
 
-            assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
             assertThat(key.getConfirmedRevision()).isEqualTo(1);
             assertThat(key.getPendingChange()).isNull();
             assertThat(key.canAuthenticate(LATER)).isTrue();
@@ -550,7 +594,7 @@ class ApiKeyTest {
 
             key.confirm(2, LATER);
 
-            assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
             assertThat(key.getConfirmedRevision()).isEqualTo(2);
             assertThat(key.getApiKeyName()).isEqualTo("new-name");
             assertThat(key.getExpiresAt()).isNull();
@@ -565,7 +609,7 @@ class ApiKeyTest {
 
             key.confirm(2, LATER);
 
-            assertThat(key.state()).isEqualTo(ApiKeyState.DELETED);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.DELETED);
             assertThat(key.getDeletedAt()).isEqualTo(LATER);
             assertThat(key.getConfirmedRevision()).isEqualTo(2);
             assertThat(key.getPendingChange()).isNull();
@@ -581,7 +625,7 @@ class ApiKeyTest {
             assertThatThrownBy(() -> key.confirm(1, NOW)).isInstanceOf(ApiKeyUpdateFailure.class);
             assertThatThrownBy(() -> key.confirm(3, NOW)).isInstanceOf(ApiKeyUpdateFailure.class);
 
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
             assertThat(key.getApiKeyName()).isEqualTo(NAME);
             assertThat(key.getConfirmedRevision()).isEqualTo(1);
         }
@@ -599,7 +643,7 @@ class ApiKeyTest {
             ApiKey key = withFailedUpdate();
 
             assertThatThrownBy(() -> key.confirm(2, NOW)).isInstanceOf(ApiKeyUpdateFailure.class);
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_FAILED);
         }
     }
 
@@ -615,7 +659,7 @@ class ApiKeyTest {
 
             key.reject(2, reason, NOW);
 
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_FAILED);
             assertThat(key.getPendingChange().getStatus()).isEqualTo(ChangeStatus.FAILED);
             assertThat(key.getPendingChange().getFailureReason()).isEqualTo(reason);
         }
@@ -626,7 +670,7 @@ class ApiKeyTest {
 
             key.reject(1, FailureReason.OUTBOX_PUBLISH_FAILURE, NOW);
 
-            assertThat(key.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
             assertThat(key.canAuthenticate(NOW)).isFalse();
         }
 
@@ -635,7 +679,7 @@ class ApiKeyTest {
             ApiKey key = withPendingUpdate();
 
             assertThatThrownBy(() -> key.reject(1, FailureReason.REJECTED, NOW)).isInstanceOf(ApiKeyUpdateFailure.class);
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
         }
 
         @Test
@@ -674,7 +718,7 @@ class ApiKeyTest {
             DismissResult result = key.dismiss();
 
             assertThat(result).isEqualTo(DismissResult.CLEARED);
-            assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
             assertThat(key.getPendingChange()).isNull();
             assertThat(key.getApiKeyName()).isEqualTo(NAME);
         }
@@ -686,7 +730,7 @@ class ApiKeyTest {
             key.reject(2, FailureReason.REJECTED, NOW);
 
             assertThat(key.dismiss()).isEqualTo(DismissResult.CLEARED);
-            assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
             assertThat(key.canAuthenticate(NOW)).isTrue();
         }
 
@@ -743,7 +787,7 @@ class ApiKeyTest {
             ApiKey key = withPendingUpdate();
 
             assertThatThrownBy(() -> key.dismiss()).isInstanceOf(ApiKeyUpdateFailure.class);
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
         }
     }
 
@@ -900,7 +944,7 @@ class ApiKeyTest {
 
             key.cancelPendingChange(LATER);
 
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_FAILED);
             assertThat(key.getPendingChange().getFailureReason()).isEqualTo(FailureReason.CANCELLED_BY_USER);
             UpdateApiKeyProjectionCommand update = (UpdateApiKeyProjectionCommand) commands(key.pullProjectionCommands()).getFirst();
             assertThat(update.version()).isEqualTo(3);
@@ -920,7 +964,7 @@ class ApiKeyTest {
 
             assertThat(commands(pendingDelete.pullProjectionCommands()).getFirst()).isInstanceOf(CreateApiKeyProjectionCommand.class);
             assertThat(commands(provisioning.pullProjectionCommands()).getFirst()).isInstanceOf(DeleteApiKeyProjectionCommand.class);
-            assertThat(provisioning.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
+            assertThat(provisioning.state(NOW)).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
         }
 
         @Test
@@ -976,13 +1020,13 @@ class ApiKeyTest {
 
         @Test
         void allStates() {
-            assertThat(provisioning().state()).isEqualTo(ApiKeyState.PROVISIONING);
-            assertThat(provisioningFailed().state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
-            assertThat(active().state()).isEqualTo(ApiKeyState.ACTIVE);
-            assertThat(withPendingUpdate().state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
-            assertThat(withPendingDelete().state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
-            assertThat(withFailedUpdate().state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
-            assertThat(deleted().state()).isEqualTo(ApiKeyState.DELETED);
+            assertThat(provisioning().state(NOW)).isEqualTo(ApiKeyState.PROVISIONING);
+            assertThat(provisioningFailed().state(NOW)).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
+            assertThat(active().state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
+            assertThat(withPendingUpdate().state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
+            assertThat(withPendingDelete().state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
+            assertThat(withFailedUpdate().state(NOW)).isEqualTo(ApiKeyState.CHANGE_FAILED);
+            assertThat(deleted().state(NOW)).isEqualTo(ApiKeyState.DELETED);
         }
     }
 }

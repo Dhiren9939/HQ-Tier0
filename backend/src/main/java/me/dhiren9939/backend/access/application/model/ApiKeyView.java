@@ -13,7 +13,7 @@ public record ApiKeyView(UUID apiKeyId, UUID userId, String accessId, String api
                          Permissions permissions, Instant createdAt, Instant expiresAt,
                          ApiKeyState state, ChangeKind changeKind) {
 
-    public static ApiKeyView of(ApiKey key) {
+    public static ApiKeyView of(ApiKey key, Instant now) {
         return new ApiKeyView(
                 key.getApiKeyId(),
                 key.getUserId(),
@@ -22,7 +22,7 @@ public record ApiKeyView(UUID apiKeyId, UUID userId, String accessId, String api
                 key.getPermissions(),
                 key.getCreatedAt(),
                 key.getExpiresAt(),
-                key.state(),
+                key.state(now),
                 key.getPendingChange() == null ? null : key.getPendingChange().getKind());
     }
 }

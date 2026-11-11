@@ -13,6 +13,8 @@ class ApiKeyStatusTest {
         assertThat(ApiKeyStatus.of(ApiKeyState.PROVISIONING, ChangeKind.CREATE)).isEqualTo(ApiKeyStatus.CREATING);
         assertThat(ApiKeyStatus.of(ApiKeyState.PROVISIONING_FAILED, ChangeKind.CREATE)).isEqualTo(ApiKeyStatus.CREATION_FAILED);
         assertThat(ApiKeyStatus.of(ApiKeyState.ACTIVE, null)).isEqualTo(ApiKeyStatus.ACTIVE);
+        assertThat(ApiKeyStatus.of(ApiKeyState.EXPIRED, null)).isEqualTo(ApiKeyStatus.EXPIRED);
+        assertThat(ApiKeyStatus.of(ApiKeyState.EXPIRED, ChangeKind.UPDATE)).as("a pending change does not change what is shown").isEqualTo(ApiKeyStatus.EXPIRED);
         assertThat(ApiKeyStatus.of(ApiKeyState.DELETED, null)).isEqualTo(ApiKeyStatus.DELETED);
     }
 

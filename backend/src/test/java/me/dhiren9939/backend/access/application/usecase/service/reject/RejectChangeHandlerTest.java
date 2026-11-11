@@ -44,7 +44,7 @@ class RejectChangeHandlerTest {
 
         reject(key, 1, FailureReason.REJECTED);
 
-        assertThat(key.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
         assertThat(key.getPendingChange().getStatus()).isEqualTo(ChangeStatus.FAILED);
         assertThat(key.getPendingChange().getFailureReason()).isEqualTo(FailureReason.REJECTED);
         assertThat(apiKeys.saves).isEqualTo(1);
@@ -60,7 +60,7 @@ class RejectChangeHandlerTest {
 
             reject(key, 2, reason);
 
-            assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_FAILED);
             assertThat(key.getPendingChange().getFailureReason()).isEqualTo(reason);
         }
     }
@@ -70,7 +70,7 @@ class RejectChangeHandlerTest {
         ApiKey key = apiKeys.existing(changePending());
 
         assertThatThrownBy(() -> reject(key, 1, FailureReason.REJECTED)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
         assertThat(apiKeys.saves).isZero();
     }
 

@@ -43,7 +43,7 @@ class ConfirmChangeHandlerTest {
 
         confirm(key, 1);
 
-        assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
         assertThat(key.canAuthenticate(NOW)).isTrue();
         assertThat(apiKeys.saves).isEqualTo(1);
         assertThat(apiKeys.publishedEvents).as("confirming never emits an event").isEmpty();
@@ -56,7 +56,7 @@ class ConfirmChangeHandlerTest {
         confirm(key, 2);
 
         assertThat(apiKeys.contains(key.getApiKeyId())).isTrue();
-        assertThat(key.state()).isEqualTo(ApiKeyState.DELETED);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.DELETED);
         assertThat(key.canAuthenticate(NOW)).isFalse();
     }
 
@@ -66,7 +66,7 @@ class ConfirmChangeHandlerTest {
 
         assertThatThrownBy(() -> confirm(key, 1)).isInstanceOf(ApiKeyUpdateFailure.class);
         assertThatThrownBy(() -> confirm(key, 3)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
         assertThat(apiKeys.saves).isZero();
     }
 

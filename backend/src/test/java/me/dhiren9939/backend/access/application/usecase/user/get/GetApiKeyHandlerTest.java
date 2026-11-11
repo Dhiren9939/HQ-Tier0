@@ -10,6 +10,8 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static me.dhiren9939.backend.access.application.usecase.Fixtures.*;
@@ -24,7 +26,7 @@ class GetApiKeyHandlerTest {
     @BeforeEach
     void setUp() {
         apiKeys = new InMemoryApiKeys();
-        handler = new GetApiKeyHandler(apiKeys);
+        handler = new GetApiKeyHandler(apiKeys, CLOCK);
     }
 
     private ApiKeyView get(UUID userId, ApiKey key) {
@@ -69,6 +71,14 @@ class GetApiKeyHandlerTest {
         ApiKey key = apiKeys.existing(deleted());
 
         assertThat(get(USER_ID, key).state()).isEqualTo(ApiKeyState.DELETED);
+    }
+
+    @Test
+    void aKeyPastItsExpiryIsShownAsExpired() {
+        ApiKey key = apiKeys.existing(active());
+        handler = new GetApiKeyHandler(apiKeys, Clock.fixed(ONE_MONTH_FROM_NOW.plusSeconds(1), ZoneOffset.UTC));
+
+        assertThat(get(USER_ID, key).state()).isEqualTo(ApiKeyState.EXPIRED);
     }
 
     @Test

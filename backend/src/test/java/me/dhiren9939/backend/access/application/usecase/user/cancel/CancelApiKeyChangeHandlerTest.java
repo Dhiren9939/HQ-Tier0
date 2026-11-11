@@ -38,7 +38,7 @@ class CancelApiKeyChangeHandlerTest {
 
         cancel(USER_ID, key);
 
-        assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_FAILED);
         assertThat(key.getPendingChange().getFailureReason()).isEqualTo(FailureReason.CANCELLED_BY_USER);
         assertThat(apiKeys.saves).isEqualTo(1);
         assertThat(apiKeys.publishedEvents).hasSize(1);
@@ -50,7 +50,7 @@ class CancelApiKeyChangeHandlerTest {
 
         cancel(USER_ID, key);
 
-        assertThat(key.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
         assertThat(apiKeys.publishedEvents).hasSize(1);
     }
 
@@ -74,7 +74,7 @@ class CancelApiKeyChangeHandlerTest {
         ApiKey key = apiKeys.existing(changePending());
 
         assertThatThrownBy(() -> cancel(OTHER_USER_ID, key)).isInstanceOf(ApiKeyNotFoundException.class);
-        assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
     }
 
     @Test

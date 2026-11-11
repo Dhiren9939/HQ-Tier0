@@ -38,7 +38,7 @@ class DismissApiKeyHandlerTest {
 
         dismiss(USER_ID, key);
 
-        assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
         assertThat(apiKeys.contains(key.getApiKeyId())).isTrue();
         assertThat(apiKeys.saves).isEqualTo(1);
         assertThat(apiKeys.publishedEvents).isEmpty();

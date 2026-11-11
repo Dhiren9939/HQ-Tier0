@@ -16,6 +16,7 @@ public enum ApiKeyStatus {
     UPDATE_FAILED,
     DELETING,
     DELETE_FAILED,
+    EXPIRED,
     DELETED;
 
     public static ApiKeyStatus of(ApiKeyState state, ChangeKind kind) {
@@ -25,6 +26,7 @@ public enum ApiKeyStatus {
             case ACTIVE -> ACTIVE;
             case CHANGE_PENDING -> kind == ChangeKind.DELETE ? DELETING : UPDATING;
             case CHANGE_FAILED -> kind == ChangeKind.DELETE ? DELETE_FAILED : UPDATE_FAILED;
+            case EXPIRED -> EXPIRED;
             case DELETED -> DELETED;
         };
     }

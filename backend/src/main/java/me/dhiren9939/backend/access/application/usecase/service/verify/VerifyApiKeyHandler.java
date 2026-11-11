@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -45,8 +46,9 @@ class VerifyApiKeyHandler implements VerifyApiKeyUseCase {
                     return failure();
                 });
 
-        if (!key.canAuthenticate(clock.instant())) {
-            log.warn("ApiKey with accessId={} cannot authenticate in state {}", presented.accessId(), key.state());
+        Instant now = clock.instant();
+        if (!key.canAuthenticate(now)) {
+            log.warn("ApiKey with accessId={} cannot authenticate in state {}", presented.accessId(), key.state(now));
             throw failure();
         }
 

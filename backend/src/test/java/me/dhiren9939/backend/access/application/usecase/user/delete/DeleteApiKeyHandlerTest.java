@@ -39,7 +39,7 @@ class DeleteApiKeyHandlerTest {
 
         delete(USER_ID, key);
 
-        assertThat(key.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
         assertThat(key.getPendingChange().getKind()).isEqualTo(ChangeKind.DELETE);
         assertThat(apiKeys.contains(key.getApiKeyId())).as("not removed until confirmed and dismissed").isTrue();
         assertThat(apiKeys.publishedEvents).hasSize(1);

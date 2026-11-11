@@ -228,7 +228,7 @@ public class ApiKey {
      * when the change failed, so dismissing registers nothing.
      */
     public DismissResult dismiss() {
-        return switch (state()) {
+        return switch (lifecycle()) {
             case CHANGE_FAILED -> {
                 pendingChange = null;
                 yield DismissResult.CLEARED;
@@ -258,7 +258,31 @@ public class ApiKey {
         return this.userId.equals(userId);
     }
 
-    public ApiKeyState state() {
+    /**
+     * Where the key stands at {@code now}. Expiry comes from the clock, so it is derived here and not stored:
+     * a key whose confirmed expiry has passed is {@link ApiKeyState#EXPIRED}, whatever change is pending on it.
+     */
+    public ApiKeyState state(Instant now) {
+        ApiKeyState lifecycle = lifecycle();
+        boolean confirmed = lifecycle == ApiKeyState.ACTIVE
+                || lifecycle == ApiKeyState.CHANGE_PENDING
+                || lifecycle == ApiKeyState.CHANGE_FAILED;
+        return confirmed && expiresAt != null && expiresAt.isBefore(now) ? ApiKeyState.EXPIRED : lifecycle;
+    }
+
+    /**
+     * Verification only trusts confirmed state: never provisioning, deleted or expired keys. A pending or failed
+     * change does not stop the key working with its confirmed attributes.
+     */
+    public boolean canAuthenticate(Instant now) {
+        return switch (state(now)) {
+            case ACTIVE, CHANGE_PENDING, CHANGE_FAILED -> true;
+            case PROVISIONING, PROVISIONING_FAILED, EXPIRED, DELETED -> false;
+        };
+    }
+
+    /** The state ignoring the clock: what the rules about changing and dismissing a key depend on. */
+    private ApiKeyState lifecycle() {
         if (deletedAt != null)
             return ApiKeyState.DELETED;
         if (pendingChange == null)
@@ -267,13 +291,6 @@ public class ApiKey {
         if (pendingChange.getKind() == ChangeKind.CREATE)
             return pending ? ApiKeyState.PROVISIONING : ApiKeyState.PROVISIONING_FAILED;
         return pending ? ApiKeyState.CHANGE_PENDING : ApiKeyState.CHANGE_FAILED;
-    }
-
-    /** Verification only trusts confirmed state: never provisioning, deleted or expired keys. */
-    public boolean canAuthenticate(Instant now) {
-        return confirmedRevision > 0
-                && deletedAt == null
-                && (expiresAt == null || !expiresAt.isBefore(now));
     }
 
     /** The confirmed state, ignoring any pending or failed change. */
@@ -348,7 +365,7 @@ public class ApiKey {
     }
 
     private void assertChangeable(String action) {
-        switch (state()) {
+        switch (lifecycle()) {
             case ACTIVE -> {
             }
             case PROVISIONING ->
@@ -361,6 +378,7 @@ public class ApiKey {
                     throw new ApiKeyUpdateFailure("Can't " + action + " an API key with a failed change; dismiss it first");
             case DELETED ->
                     throw new ApiKeyUpdateFailure("Can't " + action + " a deleted API key");
+            case EXPIRED -> throw new IllegalStateException("lifecycle() does not depend on the clock");
         }
     }
 

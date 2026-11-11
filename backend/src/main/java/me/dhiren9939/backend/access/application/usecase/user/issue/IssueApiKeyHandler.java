@@ -29,6 +29,6 @@ class IssueApiKeyHandler implements IssueApiKeyUseCase {
                 createdAt, command.lifetime().expiryFrom(createdAt));
         apiKeys.save(key);
 
-        return new IssuedApiKeyResult(ApiKeyView.of(key), credential.accessSecret());
+        return new IssuedApiKeyResult(ApiKeyView.of(key, createdAt), credential.accessSecret());
     }
 }

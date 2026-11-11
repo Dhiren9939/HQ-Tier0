@@ -30,6 +30,6 @@ class UpdateApiKeyHandler implements UpdateApiKeyUseCase {
         if (key.requestUpdate(changes, clock.instant()))
             apiKeys.save(key);
 
-        return ApiKeyView.of(key);
+        return ApiKeyView.of(key, clock.instant());
     }
 }
