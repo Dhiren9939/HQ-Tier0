@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-/** The adapter writes the aggregate's events into the outbox itself, right after the key change. */
+/** The repository implementation writes the aggregate's projection commands into the outbox itself, right after the key change. */
 @ExtendWith(MockitoExtension.class)
 class ApiKeysAdapterTest {
 

@@ -12,7 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * In-memory stand-in for the {@link ApiKeys} port. Like the real adapter it collects the projection commands a key
+ * In-memory stand-in for {@link ApiKeys}. Like the real implementation it collects the projection commands a key
  * registered whenever it is saved or deleted, so tests can assert on what would reach the outbox.
  */
 public class InMemoryApiKeys implements ApiKeys {

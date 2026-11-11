@@ -1,7 +1,7 @@
 package me.dhiren9939.backend.access.application.interfaces;
 
 /**
- * Output port that checks a presented secret against a stored hash for one key format.
+ * Checks a presented secret against a stored hash for one key format.
  * It knows nothing about persistence: the use case supplies the stored hash.
  */
 public interface CredentialVerifier {

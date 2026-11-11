@@ -11,7 +11,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * JPA implementation of the {@link ApiKeys} port. After storing or removing a key it writes the projection commands
+ * JPA implementation of {@link ApiKeys}. After storing or removing a key it writes the projection commands
  * the aggregate registered straight into the outbox, in the caller's transaction: if the outbox row cannot be
  * written the key change rolls back with it.
  */

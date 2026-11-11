@@ -36,7 +36,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** The key lifecycle through the input ports, against a real PostgreSQL. */
+/** The key lifecycle through the use cases, against a real PostgreSQL. */
 class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
     private final UUID owner = UUID.randomUUID();

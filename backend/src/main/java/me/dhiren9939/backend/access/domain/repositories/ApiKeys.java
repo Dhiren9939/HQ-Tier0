@@ -6,7 +6,7 @@ import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Output port through which use cases load and store {@link ApiKey} aggregates. */
+/** The repository through which use cases load and store {@link ApiKey} aggregates. */
 public interface ApiKeys {
     Optional<ApiKey> findById(UUID apiKeyId);
 
