@@ -31,6 +31,7 @@ src/test/java/me/dhiren9939/backend
 ├── BackendApplicationTests                          Spring context loads on a real Postgres
 ├── shared/access/                                   Permissions, Scope; events/outbound: outgoing command contract
 ├── access/domain/aggregates/apikey/                 ApiKey aggregate, PermissionChanges
+├── access/presentation/api/controllers/             ApiKeyControllerTest, ApiErrorHandlingTest (validation, malformed requests, transport and unexpected errors)
 ├── access/application/usecase/{user,service}/<name>/   one test class per handler, in the handler's own package
 ├── access/application/usecase/                      test-only helpers: Fixtures, InMemoryApiKeys (a fake ApiKeys)
 ├── access/presentation/api/controllers/             REST controller (MockMvc, no database), test-only VerifyProbeController

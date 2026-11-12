@@ -119,6 +119,30 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
+    @DisplayName("bad requests on the running app: one problem body with a machine code")
+    void badRequestsGetACodedProblemBody() throws Exception {
+        json(post(keys()), "{\"name\":\"\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors").isNotEmpty());
+        json(post(keys()), "{oops")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        send(get("/api/v1/user/not-a-uuid/apikey/" + UUID.randomUUID()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+        send(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(keys() + "/" + UUID.randomUUID()))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+        send(get("/api/v1/nothing/here"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ROUTE_NOT_FOUND"));
+        send(get(keys() + "/" + UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("API_KEY_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("404: unknown key, someone else's key, unknown key on the internal endpoints")
     void notFound() throws Exception {
         UUID id = create("{\"name\":\"k\",\"expiry\":\"NEVER\"}");

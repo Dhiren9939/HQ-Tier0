@@ -7,7 +7,7 @@ package me.dhiren9939.backend.shared.access;
  * matched, so they never reveal whether an access id exists.
  */
 public enum VerificationFailureCode {
-    /** The access id or secret is missing or not in a recognised format. */
+    /** The access id or secret is missing or not in a recognized format. */
     MALFORMED_CREDENTIALS,
     /** The access id is unknown, or the secret does not match. Deliberately one outcome for both. */
     INVALID_CREDENTIALS,

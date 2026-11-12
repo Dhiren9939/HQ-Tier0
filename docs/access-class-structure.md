@@ -497,7 +497,7 @@ one outcome (`INVALID_CREDENTIALS`), and the secret is checked before the key's 
 
 | Code | Message | HTTP (if mapped) |
 |---|---|---|
-| `MALFORMED_CREDENTIALS` | The API key is missing or not in a recognised format. | 400 |
+| `MALFORMED_CREDENTIALS` | The API key is missing or not in a recognized format. | 400 |
 | `INVALID_CREDENTIALS` | The API key or secret is invalid. | 401 |
 | `KEY_EXPIRED` | The API key has expired. | 401 |
 | `KEY_DELETED` | The API key has been deleted. | 401 |

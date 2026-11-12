@@ -18,7 +18,7 @@ public class ApiKeyVerificationFailure extends RuntimeException {
 
     public static ApiKeyVerificationFailure malformed() {
         return new ApiKeyVerificationFailure(VerificationFailureCode.MALFORMED_CREDENTIALS,
-                "The API key is missing or not in a recognised format.");
+                "The API key is missing or not in a recognized format.");
     }
 
     public static ApiKeyVerificationFailure invalid() {

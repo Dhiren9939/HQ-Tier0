@@ -40,7 +40,7 @@ class VerifyApiKeyHandlerTest {
     };
 
     private static final String INVALID_MESSAGE = "The API key or secret is invalid.";
-    private static final String MALFORMED_MESSAGE = "The API key is missing or not in a recognised format.";
+    private static final String MALFORMED_MESSAGE = "The API key is missing or not in a recognized format.";
 
     private InMemoryApiKeys apiKeys;
     private VerifyApiKeyHandler handler;

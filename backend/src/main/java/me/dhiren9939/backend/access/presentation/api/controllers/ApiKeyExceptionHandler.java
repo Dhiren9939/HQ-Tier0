@@ -5,23 +5,27 @@ import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.shared.access.InvalidPermissionsException;
 import me.dhiren9939.backend.shared.access.VerificationFailureCode;
+import me.dhiren9939.backend.web.errors.ApiProblems;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /** Maps Access failures to HTTP problem responses instead of letting them surface as 500s. */
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackageClasses = ApiKeyExceptionHandler.class)
 class ApiKeyExceptionHandler {
 
     @ExceptionHandler(ApiKeyNotFoundException.class)
     ProblemDetail notFound(ApiKeyNotFoundException exception) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+        return ApiProblems.of(HttpStatus.NOT_FOUND, "API_KEY_NOT_FOUND", exception.getMessage());
     }
 
     @ExceptionHandler(ApiKeyUpdateFailure.class)
     ProblemDetail conflict(ApiKeyUpdateFailure exception) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+        return ApiProblems.of(HttpStatus.CONFLICT, "API_KEY_CONFLICT", exception.getMessage());
     }
 
     @ExceptionHandler(ApiKeyVerificationFailure.class)
@@ -29,13 +33,11 @@ class ApiKeyExceptionHandler {
         HttpStatus status = exception.code() == VerificationFailureCode.MALFORMED_CREDENTIALS
                 ? HttpStatus.BAD_REQUEST
                 : HttpStatus.UNAUTHORIZED;
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, exception.getMessage());
-        problem.setProperty("code", exception.code().name());
-        return problem;
+        return ApiProblems.of(status, exception.code().name(), exception.getMessage());
     }
 
     @ExceptionHandler(InvalidPermissionsException.class)
     ProblemDetail invalidPermissions(InvalidPermissionsException exception) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        return ApiProblems.of(HttpStatus.BAD_REQUEST, "INVALID_PERMISSIONS", exception.getMessage());
     }
 }

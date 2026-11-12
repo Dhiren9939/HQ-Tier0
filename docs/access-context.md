@@ -143,6 +143,26 @@ States are derived from the confirmed state and the pending change; they are not
 
 Responses carry one status field, `status`, a presentation enum (`ApiKeyStatus`) derived from the internal `ApiKeyState` and the kind of the unsettled change: `CREATING`, `CREATION_FAILED`, `ACTIVE`, `UPDATING`, `UPDATE_FAILED`, `DELETING`, `DELETE_FAILED` or `DELETED` (a confirmed delete shows as `DELETED` until dismissed). It says what is happening and whether it failed, never why: no revisions, failure reasons, pending-change data, version counters or secret hashes are exposed, and the internal states can change without breaking clients.
 
+**Errors.** Every error is an RFC 9457 `application/problem+json` body with a human-readable `detail` that is safe to show to end users and a machine-readable `code` that clients branch on. Request bodies are validated in the DTOs; `VALIDATION_FAILED` lists every bad field at once as `errors: [{field, message}]`. Nothing the caller sent and nothing the server threw is echoed back.
+
+| Code | Status | When |
+|---|---|---|
+| `VALIDATION_FAILED` | 400 | A body field fails its constraint (blank or over-long or control-character `name`, missing `expiry`, null permission level on create, blank `name` on update, bad `issuer`). Carries `errors`. |
+| `MALFORMED_REQUEST` | 400 | Invalid JSON, missing body, wrong type, or an unknown value (`expiry`, scope, level, `reason`). |
+| `INVALID_PARAMETER` | 400 | A path variable cannot be converted, such as an id that is not a UUID or a non-numeric revision. The detail names the parameter, not the value. |
+| `INVALID_PERMISSIONS` | 400 | A permission level the scope does not allow. |
+| `API_KEY_NOT_FOUND` | 404 | No such key, or not the caller's. |
+| `ROUTE_NOT_FOUND` | 404 | No such endpoint. |
+| `METHOD_NOT_ALLOWED` | 405 | Known route, wrong method; the `Allow` header is kept. |
+| `NOT_ACCEPTABLE` | 406 | The `Accept` header asks for something the API cannot produce. |
+| `API_KEY_CONFLICT` | 409 | The change conflicts with the key's state (pending, failed, deleted) or lost the retry race. |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | Missing or wrong `Content-Type`. |
+| `INTERNAL_ERROR` | 500 | Anything unexpected: generic message, logged in full on the server. |
+
+Verification failures (`MALFORMED_CREDENTIALS`, `INVALID_CREDENTIALS`, `KEY_EXPIRED`, `KEY_DELETED`, `KEY_NOT_ACTIVE`) use the same body. The shared handler is `web.errors.WebExceptionHandler` (framework and unexpected errors, applies to every module); `ApiKeyExceptionHandler` handles the Access domain exceptions and runs first.
+
+Validation in the DTOs: `name` is 1-256 characters, not blank and without control characters; create requires `expiry` and refuses null permission levels; update treats a null level as "leave unchanged"; `issuer` is 1-256 characters starting with a letter or digit and containing only letters, digits and `. _ : / -` (it is written to logs).
+
 ## Package structure
 
 Pragmatic clean architecture: the layers are `domain`, `application`, `presentation` and `infrastructure`, and the dependency rule is `presentation` and `infrastructure` -> `application` -> `domain`. The aggregate is a rich JPA entity, so `jakarta.persistence` is the only framework import allowed in `domain`.
