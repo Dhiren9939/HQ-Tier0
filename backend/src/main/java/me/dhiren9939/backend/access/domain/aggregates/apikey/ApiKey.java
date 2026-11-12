@@ -1,5 +1,7 @@
 package me.dhiren9939.backend.access.domain.aggregates.apikey;
 
+import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
+
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
@@ -207,7 +209,7 @@ public class ApiKey {
      */
     public void cancelPendingChange(Instant now) {
         if (pendingChange == null || !pendingChange.isPending())
-            throw new ApiKeyUpdateFailure("API key has no pending change to cancel");
+            throw new ApiKeyUpdateFailure(UpdateFailureCode.NO_PENDING_CHANGE, "API key has no pending change to cancel");
         failAndCompensate(pendingChange, FailureReason.CANCELLED_BY_USER, now);
     }
 
@@ -234,7 +236,7 @@ public class ApiKey {
                 yield DismissResult.CLEARED;
             }
             case PROVISIONING_FAILED, DELETED -> DismissResult.REMOVED;
-            default -> throw new ApiKeyUpdateFailure("API key has nothing to dismiss");
+            default -> throw new ApiKeyUpdateFailure(UpdateFailureCode.NOTHING_TO_DISMISS, "API key has nothing to dismiss");
         };
     }
 
@@ -369,24 +371,24 @@ public class ApiKey {
             case ACTIVE -> {
             }
             case PROVISIONING ->
-                    throw new ApiKeyUpdateFailure("Can't " + action + " an API key with pending creation");
+                    throw new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_CREATION_PENDING, "Can't " + action + " an API key with pending creation");
             case PROVISIONING_FAILED ->
-                    throw new ApiKeyUpdateFailure("Can't " + action + " an API key whose creation failed; dismiss it first");
+                    throw new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_CREATION_FAILED, "Can't " + action + " an API key whose creation failed; dismiss it first");
             case CHANGE_PENDING ->
-                    throw new ApiKeyUpdateFailure("Can't " + action + " an API key with pending changes");
+                    throw new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_CHANGE_PENDING, "Can't " + action + " an API key with pending changes");
             case CHANGE_FAILED ->
-                    throw new ApiKeyUpdateFailure("Can't " + action + " an API key with a failed change; dismiss it first");
+                    throw new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_CHANGE_FAILED, "Can't " + action + " an API key with a failed change; dismiss it first");
             case DELETED ->
-                    throw new ApiKeyUpdateFailure("Can't " + action + " a deleted API key");
+                    throw new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_DELETED, "Can't " + action + " a deleted API key");
             case EXPIRED -> throw new IllegalStateException("lifecycle() does not depend on the clock");
         }
     }
 
     private PendingChange requirePendingAt(long revision) {
         if (pendingChange == null || !pendingChange.isPending())
-            throw new ApiKeyUpdateFailure("API key has no pending change to resolve");
+            throw new ApiKeyUpdateFailure(UpdateFailureCode.NO_PENDING_CHANGE, "API key has no pending change to resolve");
         if (pendingChange.getRevision() != revision)
-            throw new ApiKeyUpdateFailure("Revision " + revision + " is not the pending revision "
+            throw new ApiKeyUpdateFailure(UpdateFailureCode.REVISION_MISMATCH, "Revision " + revision + " is not the pending revision "
                     + pendingChange.getRevision());
         return pendingChange;
     }

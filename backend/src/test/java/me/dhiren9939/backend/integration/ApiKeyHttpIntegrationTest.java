@@ -124,13 +124,14 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         json(post(keys()), "{\"name\":\"\"}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors").isNotEmpty());
+                .andExpect(jsonPath("$.errors[?(@.field=='name')].code").value("NAME_REQUIRED"))
+                .andExpect(jsonPath("$.errors[?(@.field=='name')].message").value("must not be blank"));
         json(post(keys()), "{oops")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(jsonPath("$.code").value("REQUEST_BODY_NOT_JSON"));
         send(get("/api/v1/user/not-a-uuid/apikey/" + UUID.randomUUID()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("INVALID_USER_ID"));
         send(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(keys() + "/" + UUID.randomUUID()))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));

@@ -1,5 +1,7 @@
 package me.dhiren9939.backend.access.application.transaction;
 
+import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
+
 import lombok.extern.slf4j.Slf4j;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -34,7 +36,7 @@ public class RetriedTransaction {
             return optimisticLockRetry.execute(() -> transactionTemplate.execute(_ -> work.get()));
         } catch (ObjectOptimisticLockingFailureException conflict) {
             log.warn("API key write retries exhausted", conflict);
-            throw new ApiKeyUpdateFailure();
+            throw new ApiKeyUpdateFailure(UpdateFailureCode.CONCURRENT_MODIFICATION, "Failed to update the API key");
         }
     }
 

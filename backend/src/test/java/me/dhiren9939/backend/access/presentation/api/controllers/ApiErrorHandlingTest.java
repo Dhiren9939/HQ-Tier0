@@ -4,6 +4,10 @@ import me.dhiren9939.backend.access.application.model.ApiKeyView;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
+import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
+import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
+import me.dhiren9939.backend.shared.access.VerificationFailureCode;
 import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.web.errors.WebExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +24,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.startsWith;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -71,87 +77,113 @@ class ApiErrorHandlingTest {
         return request.contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
-    // ---- validation: the DTOs
+    // ---- validation: the DTOs, one code per constraint
+
+    private void assertFieldError(MockHttpServletRequestBuilder request, String field, String code) throws Exception {
+        received.clear();
+        mvc.perform(request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[?(@.field=='" + field + "' && @.code=='" + code + "')]").exists())
+                .andExpect(jsonPath("$.errors[*].message").value(not(hasItem(startsWith("{")))));
+        assertThat(received).isEmpty();
+    }
 
     @Test
-    void creatingWithInvalidFieldsListsEveryProblemAtOnce() throws Exception {
+    void creatingWithInvalidFieldsListsEveryProblemWithItsOwnCode() throws Exception {
         mvc.perform(json(post(KEYS), "{\"name\":\"  \",\"permissions\":{\"INGESTION\":null}}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors[?(@.field=='name')]").exists())
-                .andExpect(jsonPath("$.errors[?(@.field=='expiry')]").exists())
-                .andExpect(jsonPath("$.errors[?(@.field=='permissions[INGESTION]')]").exists());
+                .andExpect(jsonPath("$.errors.length()").value(3))
+                .andExpect(jsonPath("$.errors[?(@.field=='name' && @.code=='NAME_REQUIRED')].message").value("must not be blank"))
+                .andExpect(jsonPath("$.errors[?(@.field=='expiry' && @.code=='EXPIRY_REQUIRED')]").exists())
+                .andExpect(jsonPath("$.errors[?(@.field=='permissions[INGESTION]' && @.code=='PERMISSION_LEVEL_REQUIRED')]").exists());
         assertThat(received).isEmpty();
     }
 
     @Test
-    void aTooLongOrControlCharacterNameIsRefused() throws Exception {
+    void everyNameConstraintHasItsOwnCode() throws Exception {
+        assertFieldError(json(post(KEYS), "{\"name\":\"\",\"expiry\":\"NEVER\"}"), "name", "NAME_REQUIRED");
+        assertFieldError(json(post(KEYS), "{\"name\":\"" + "x".repeat(257) + "\",\"expiry\":\"NEVER\"}"), "name", "NAME_TOO_LONG");
+        assertFieldError(json(post(KEYS), "{\"name\":\"line\\nbreak\",\"expiry\":\"NEVER\"}"), "name", "NAME_INVALID_CHARACTERS");
+        assertFieldError(json(patch(KEYS + "/" + KEY_ID), "{\"name\":\"   \"}"), "name", "NAME_BLANK");
+        assertFieldError(json(patch(KEYS + "/" + KEY_ID), "{\"name\":\"" + "x".repeat(257) + "\"}"), "name", "NAME_TOO_LONG");
+        assertFieldError(json(patch(KEYS + "/" + KEY_ID), "{\"name\":\"tab\\there\"}"), "name", "NAME_INVALID_CHARACTERS");
+    }
+
+    @Test
+    void theTooLongMessageSaysTheLimit() throws Exception {
         mvc.perform(json(post(KEYS), "{\"name\":\"" + "x".repeat(257) + "\",\"expiry\":\"NEVER\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("name"));
-        mvc.perform(json(post(KEYS), "{\"name\":\"line\\nbreak\",\"expiry\":\"NEVER\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].message").value("must not contain control characters"));
-        assertThat(received).isEmpty();
+                .andExpect(jsonPath("$.errors[0].message").value("must be at most 256 characters"));
     }
 
     @Test
-    void updatingAcceptsEmptyAndPartialBodiesButNotABlankName() throws Exception {
+    void updatingAcceptsEmptyAndPartialBodies() throws Exception {
         mvc.perform(json(patch(KEYS + "/" + KEY_ID), "{}")).andExpect(status().isOk());
         mvc.perform(json(patch(KEYS + "/" + KEY_ID), "{\"permissions\":{\"TENANT\":null}}")).andExpect(status().isOk());
-        mvc.perform(json(patch(KEYS + "/" + KEY_ID), "{\"name\":\"   \"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors[0].message").value("must not be blank"));
-        mvc.perform(json(patch(KEYS + "/" + KEY_ID), "{\"name\":\"" + "x".repeat(257) + "\"}"))
-                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void theIssuerMustBeAStrictIdentifier() throws Exception {
+    void everyIssuerConstraintHasItsOwnCode() throws Exception {
         for (String answer : new String[]{CONFIRM, REJECT}) {
-            for (String issuer : new String[]{"", " ", "-leading-dash", "has space", "bad\\nnewline", "semi;colon", "x".repeat(257)}) {
-                mvc.perform(json(post(answer), "{\"issuer\":\"" + issuer + "\"}"))
-                        .andExpect(status().isBadRequest())
-                        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                        .andExpect(jsonPath("$.errors[0].field").value("issuer"));
-            }
+            assertFieldError(json(post(answer), "{\"issuer\":\"\"}"), "issuer", "ISSUER_REQUIRED");
+            assertFieldError(json(post(answer), "{\"issuer\":\" \"}"), "issuer", "ISSUER_REQUIRED");
+            assertFieldError(json(post(answer), "{}"), "issuer", "ISSUER_REQUIRED");
+            assertFieldError(json(post(answer), "{\"issuer\":\"" + "x".repeat(257) + "\"}"), "issuer", "ISSUER_TOO_LONG");
+            for (String bad : new String[]{"-leading-dash", "has space", "bad\\nnewline", "semi;colon"})
+                assertFieldError(json(post(answer), "{\"issuer\":\"" + bad + "\"}"), "issuer", "ISSUER_INVALID_FORMAT");
             mvc.perform(json(post(answer), "{\"issuer\":\"ingestion-service\"}")).andExpect(status().isNoContent());
             mvc.perform(json(post(answer), "{\"issuer\":\"Ingestion_1.v2:eu/west\"}")).andExpect(status().isNoContent());
         }
     }
 
-    // ---- malformed requests
+    // ---- malformed requests: one code per cause
 
-    @Test
-    void invalidJsonAnEmptyBodyAndUnknownValuesAreMalformedRequests() throws Exception {
-        mvc.perform(json(post(KEYS), "{not json"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mvc.perform(post(KEYS).contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mvc.perform(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"FOREVER\"}"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
-                .andExpect(content().string(not(containsString("FOREVER"))));
-        mvc.perform(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"NEVER\",\"permissions\":{\"NOPE\":\"READ\"}}"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mvc.perform(json(post(CONFIRM), "[]"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
-        mvc.perform(post(REJECT).contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    private void assertBadBody(MockHttpServletRequestBuilder request, String code) throws Exception {
+        received.clear();
+        mvc.perform(request).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(code));
         assertThat(received).isEmpty();
     }
 
     @Test
-    void aPathVariableOfTheWrongTypeNamesTheParameterButNotTheValue() throws Exception {
+    void eachWayABodyCanBeUnreadableHasItsOwnCode() throws Exception {
+        assertBadBody(json(post(KEYS), "{not json"), "REQUEST_BODY_NOT_JSON");
+        assertBadBody(post(KEYS).contentType(MediaType.APPLICATION_JSON), "REQUEST_BODY_MISSING");
+        assertBadBody(post(REJECT).contentType(MediaType.APPLICATION_JSON), "REQUEST_BODY_MISSING");
+        assertBadBody(json(post(CONFIRM), "[]"), "REQUEST_BODY_WRONG_TYPE");
+    }
+
+    @Test
+    void anUnknownValueIsNamedAfterWhatCouldNotBeRead() throws Exception {
+        assertBadBody(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"FOREVER\"}"), "INVALID_LIFETIME");
+        assertBadBody(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"NEVER\",\"permissions\":{\"NOPE\":\"READ\"}}"), "INVALID_SCOPE");
+        assertBadBody(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"NEVER\",\"permissions\":{\"INGESTION\":\"SUPER\"}}"), "INVALID_ACCESS_LEVEL");
+        assertBadBody(json(patch(KEYS + "/" + KEY_ID), "{\"expiry\":\"FOREVER\"}"), "INVALID_LIFETIME");
+        assertBadBody(json(post(REJECT), "{\"issuer\":\"a\",\"reason\":\"BORED\"}"), "INVALID_FAILURE_REASON");
+    }
+
+    @Test
+    void theBadValueIsNeverEchoedButTheFieldIsNamed() throws Exception {
+        mvc.perform(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"FOREVER\"}"))
+                .andExpect(jsonPath("$.field").value("expiry"))
+                .andExpect(content().string(not(containsString("FOREVER"))));
+        mvc.perform(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"NEVER\",\"permissions\":{\"NOPE\":\"READ\"}}"))
+                .andExpect(jsonPath("$.field").value("permissions"))
+                .andExpect(content().string(not(containsString("NOPE"))));
+    }
+
+    @Test
+    void aPathVariableOfTheWrongTypeIsNamedAfterTheParameter() throws Exception {
         mvc.perform(get("/api/v1/user/{userId}/apikey/{id}", "not-a-uuid", KEY_ID))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
-                .andExpect(jsonPath("$.detail").value("The value of 'userId' is not valid."))
+                .andExpect(jsonPath("$.code").value("INVALID_USER_ID"))
+                .andExpect(jsonPath("$.parameter").value("userId"))
                 .andExpect(jsonPath("$.detail").value(not(containsString("not-a-uuid"))));
+        mvc.perform(get("/api/v1/user/{userId}/apikey/{id}", USER_ID, "nope"))
+                .andExpect(jsonPath("$.code").value("INVALID_API_KEY_ID"));
         mvc.perform(json(post("/internal/apikey/{id}/changes/{revision}/confirm", KEY_ID, "latest"), "{\"issuer\":\"a\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
-                .andExpect(jsonPath("$.detail").value("The value of 'revision' is not valid."));
+                .andExpect(jsonPath("$.code").value("INVALID_REVISION"));
     }
 
     // ---- transport errors
@@ -195,17 +227,25 @@ class ApiErrorHandlingTest {
     }
 
     @Test
-    void domainErrorsCarryTheirCodesAndAreNotSwallowedByTheCatchAll() throws Exception {
+    void domainErrorsCarryTheirOwnCodesAndAreNotSwallowedByTheCatchAll() throws Exception {
         failure = new me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException();
         mvc.perform(get(KEYS + "/" + KEY_ID))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("API_KEY_NOT_FOUND"));
 
-        failure = new me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure("Can't update an API key with pending changes");
-        mvc.perform(get(KEYS + "/" + KEY_ID))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("API_KEY_CONFLICT"));
+        for (UpdateFailureCode code : UpdateFailureCode.values()) {
+            failure = new ApiKeyUpdateFailure(code, "refused");
+            mvc.perform(get(KEYS + "/" + KEY_ID))
+                    .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(code.name()));
+        }
 
         failure = new me.dhiren9939.backend.shared.access.InvalidPermissionsException("nope");
         mvc.perform(get(KEYS + "/" + KEY_ID))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_PERMISSIONS"));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_SCOPE_LEVEL"));
+
+        for (VerificationFailureCode code : VerificationFailureCode.values()) {
+            failure = new ApiKeyVerificationFailure(code, "refused");
+            mvc.perform(get(KEYS + "/" + KEY_ID))
+                    .andExpect(jsonPath("$.code").value(code.name()));
+        }
     }
 }

@@ -13,10 +13,15 @@ import java.util.Map;
 /**
  * {@code name} and {@code expiry} are required. {@code permissions} is a JSON object keyed by scope name;
  * a missing scope means NONE, and a level cannot be null.
+ *
+ * <p>Every constraint's message is a key in {@code ValidationMessages.properties}; the key is the machine-readable
+ * code the client receives.</p>
  */
-public record CreateRequestDto(@NotBlank @Size(max = 256)
-                               @Pattern(regexp = RequestPatterns.NO_CONTROL_CHARACTERS, message = "must not contain control characters")
+public record CreateRequestDto(@NotBlank(message = "{NAME_REQUIRED}")
+                               @Size(max = 256, message = "{NAME_TOO_LONG}")
+                               @Pattern(regexp = RequestPatterns.NO_CONTROL_CHARACTERS, message = "{NAME_INVALID_CHARACTERS}")
                                String name,
-                               @NotNull Lifetime expiry,
-                               Map<@NotNull Scope, @NotNull AccessLevel> permissions) {
+                               @NotNull(message = "{EXPIRY_REQUIRED}") Lifetime expiry,
+                               Map<@NotNull(message = "{PERMISSION_SCOPE_REQUIRED}") Scope,
+                                       @NotNull(message = "{PERMISSION_LEVEL_REQUIRED}") AccessLevel> permissions) {
 }

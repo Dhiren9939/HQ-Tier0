@@ -143,25 +143,55 @@ States are derived from the confirmed state and the pending change; they are not
 
 Responses carry one status field, `status`, a presentation enum (`ApiKeyStatus`) derived from the internal `ApiKeyState` and the kind of the unsettled change: `CREATING`, `CREATION_FAILED`, `ACTIVE`, `UPDATING`, `UPDATE_FAILED`, `DELETING`, `DELETE_FAILED` or `DELETED` (a confirmed delete shows as `DELETED` until dismissed). It says what is happening and whether it failed, never why: no revisions, failure reasons, pending-change data, version counters or secret hashes are exposed, and the internal states can change without breaking clients.
 
-**Errors.** Every error is an RFC 9457 `application/problem+json` body with a human-readable `detail` that is safe to show to end users and a machine-readable `code` that clients branch on. Request bodies are validated in the DTOs; `VALIDATION_FAILED` lists every bad field at once as `errors: [{field, message}]`. Nothing the caller sent and nothing the server threw is echoed back.
+**Errors.** Every error is an RFC 9457 `application/problem+json` body with a human-readable `detail` that is safe to show to end users and a machine-readable `code` that names the exact cause, so a client can branch on it without reading the message. Nothing the caller sent and nothing the server threw is echoed back.
+
+Request validation (`400`, top-level `code` `VALIDATION_FAILED`) lists every bad field at once as `errors: [{field, code, message}]`. Each constraint's message is a key in `ValidationMessages.properties`: the key is the field error's `code`, the text its `message`. To add a rule, add a key and use `message = "{KEY}"` on the constraint.
+
+| Field error `code` | Field | When |
+|---|---|---|
+| `NAME_REQUIRED` | `name` | Create: missing or blank. |
+| `NAME_BLANK` | `name` | Update: given but blank. |
+| `NAME_TOO_LONG` | `name` | More than 256 characters. |
+| `NAME_INVALID_CHARACTERS` | `name` | Contains a control character (newline, tab, escape). |
+| `EXPIRY_REQUIRED` | `expiry` | Create: missing. |
+| `PERMISSION_LEVEL_REQUIRED` | `permissions[SCOPE]` | Create: a level is `null`. (On update a `null` level means "leave unchanged".) |
+| `PERMISSION_SCOPE_REQUIRED` | `permissions` | A scope key is null. |
+| `ISSUER_REQUIRED` | `issuer` | Missing or blank. |
+| `ISSUER_TOO_LONG` | `issuer` | More than 256 characters. |
+| `ISSUER_INVALID_FORMAT` | `issuer` | Must start with a letter or digit and contain only letters, digits and `. _ : / -` (it is written to logs). |
+
+Every other error has one top-level code:
 
 | Code | Status | When |
 |---|---|---|
-| `VALIDATION_FAILED` | 400 | A body field fails its constraint (blank or over-long or control-character `name`, missing `expiry`, null permission level on create, blank `name` on update, bad `issuer`). Carries `errors`. |
-| `MALFORMED_REQUEST` | 400 | Invalid JSON, missing body, wrong type, or an unknown value (`expiry`, scope, level, `reason`). |
-| `INVALID_PARAMETER` | 400 | A path variable cannot be converted, such as an id that is not a UUID or a non-numeric revision. The detail names the parameter, not the value. |
-| `INVALID_PERMISSIONS` | 400 | A permission level the scope does not allow. |
+| `REQUEST_BODY_MISSING` | 400 | The body is required but absent or empty. |
+| `REQUEST_BODY_NOT_JSON` | 400 | The body is not valid JSON. |
+| `REQUEST_BODY_WRONG_TYPE` | 400 | Valid JSON of the wrong shape, such as an array where an object is expected. |
+| `REQUEST_BODY_INVALID` | 400 | Any other unreadable body. |
+| `INVALID_LIFETIME` | 400 | `expiry` is not `ONE_DAY`, `ONE_MONTH` or `NEVER`. Carries `field`. |
+| `INVALID_SCOPE` | 400 | A key in `permissions` is not a known scope. Carries `field`. |
+| `INVALID_ACCESS_LEVEL` | 400 | A level in `permissions` is not a known level. Carries `field`. |
+| `INVALID_FAILURE_REASON` | 400 | `reason` in a reject answer is not a known reason. Carries `field`. |
+| `INVALID_<PROPERTY>` | 400 | Any other body property of the wrong type, named after it. Carries `field`. |
+| `INVALID_SCOPE_LEVEL` | 400 | The level is known but that scope does not accept it. |
+| `INVALID_USER_ID`, `INVALID_API_KEY_ID`, `INVALID_REVISION` | 400 | A path variable cannot be converted (not a UUID, not a number). Carries `parameter`, never the value. |
 | `API_KEY_NOT_FOUND` | 404 | No such key, or not the caller's. |
 | `ROUTE_NOT_FOUND` | 404 | No such endpoint. |
 | `METHOD_NOT_ALLOWED` | 405 | Known route, wrong method; the `Allow` header is kept. |
 | `NOT_ACCEPTABLE` | 406 | The `Accept` header asks for something the API cannot produce. |
-| `API_KEY_CONFLICT` | 409 | The change conflicts with the key's state (pending, failed, deleted) or lost the retry race. |
+| `API_KEY_CREATION_PENDING` | 409 | The key's creation is still waiting for the data plane. |
+| `API_KEY_CREATION_FAILED` | 409 | The key's creation failed; dismiss it first. |
+| `API_KEY_CHANGE_PENDING` | 409 | An update or delete is still waiting for the data plane. |
+| `API_KEY_CHANGE_FAILED` | 409 | An update or delete failed; dismiss it first. |
+| `API_KEY_DELETED` | 409 | The key has been deleted. |
+| `NO_PENDING_CHANGE` | 409 | There is no pending change to confirm, reject or cancel. |
+| `REVISION_MISMATCH` | 409 | The revision being answered is not the pending one. |
+| `NOTHING_TO_DISMISS` | 409 | The key is not in a state that can be dismissed. |
+| `CONCURRENT_MODIFICATION` | 409 | Concurrent changes kept winning the race and the retries ran out. |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Missing or wrong `Content-Type`. |
 | `INTERNAL_ERROR` | 500 | Anything unexpected: generic message, logged in full on the server. |
 
-Verification failures (`MALFORMED_CREDENTIALS`, `INVALID_CREDENTIALS`, `KEY_EXPIRED`, `KEY_DELETED`, `KEY_NOT_ACTIVE`) use the same body. The shared handler is `web.errors.WebExceptionHandler` (framework and unexpected errors, applies to every module); `ApiKeyExceptionHandler` handles the Access domain exceptions and runs first.
-
-Validation in the DTOs: `name` is 1-256 characters, not blank and without control characters; create requires `expiry` and refuses null permission levels; update treats a null level as "leave unchanged"; `issuer` is 1-256 characters starting with a letter or digit and containing only letters, digits and `. _ : / -` (it is written to logs).
+Verification failures (`MALFORMED_CREDENTIALS`, `INVALID_CREDENTIALS`, `KEY_EXPIRED`, `KEY_DELETED`, `KEY_NOT_ACTIVE`) use the same body. The shared handler is `web.errors.WebExceptionHandler` (framework and unexpected errors, applies to every module); `ApiKeyExceptionHandler` handles the Access domain exceptions and runs first. Domain refusals carry their code in the exception (`UpdateFailureCode`, `VerificationFailureCode`), so the code is chosen where the rule is, not guessed from a message.
 
 ## Package structure
 

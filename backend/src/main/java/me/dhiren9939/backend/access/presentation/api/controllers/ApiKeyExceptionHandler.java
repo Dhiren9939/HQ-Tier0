@@ -25,7 +25,7 @@ class ApiKeyExceptionHandler {
 
     @ExceptionHandler(ApiKeyUpdateFailure.class)
     ProblemDetail conflict(ApiKeyUpdateFailure exception) {
-        return ApiProblems.of(HttpStatus.CONFLICT, "API_KEY_CONFLICT", exception.getMessage());
+        return ApiProblems.of(HttpStatus.CONFLICT, exception.code().name(), exception.getMessage());
     }
 
     @ExceptionHandler(ApiKeyVerificationFailure.class)
@@ -38,6 +38,6 @@ class ApiKeyExceptionHandler {
 
     @ExceptionHandler(InvalidPermissionsException.class)
     ProblemDetail invalidPermissions(InvalidPermissionsException exception) {
-        return ApiProblems.of(HttpStatus.BAD_REQUEST, "INVALID_PERMISSIONS", exception.getMessage());
+        return ApiProblems.of(HttpStatus.BAD_REQUEST, "INVALID_SCOPE_LEVEL", exception.getMessage());
     }
 }

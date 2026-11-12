@@ -23,6 +23,7 @@ import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
+import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.shared.access.Permissions;
@@ -255,7 +256,7 @@ class ApiKeyControllerTest {
 
     @Test
     void aRefusedChangeBecomes409() throws Exception {
-        failure = new ApiKeyUpdateFailure("Can't update an API key with pending changes");
+        failure = new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_CHANGE_PENDING, "Can't update an API key with pending changes");
 
         mvc.perform(patch("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID)
                         .contentType(MediaType.APPLICATION_JSON)

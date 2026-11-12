@@ -6,9 +6,9 @@ import jakarta.validation.constraints.Size;
 import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 
 /** Body of a reject answer: the issuer, i.e. which downstream service rejected, and optionally why (defaults to {@code REJECTED}). */
-public record RejectRequestDto(@NotBlank @Size(max = 256)
-                               @Pattern(regexp = RequestPatterns.SERVICE_IDENTIFIER,
-                                       message = "must start with a letter or digit and contain only letters, digits and . _ : / -")
-                               String issuer,
+public record RejectRequestDto(@NotBlank(message = "{ISSUER_REQUIRED}")
+                                @Size(max = 256, message = "{ISSUER_TOO_LONG}")
+                                @Pattern(regexp = RequestPatterns.SERVICE_IDENTIFIER, message = "{ISSUER_INVALID_FORMAT}")
+                                String issuer,
                                FailureReason reason) {
 }
