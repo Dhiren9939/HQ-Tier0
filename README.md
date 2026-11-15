@@ -34,6 +34,11 @@ validate the core architecture (auth, ingestion, queuing, delivery) end-to-end. 
 - **`docker-compose.yml`** — Local infrastructure: Postgres 17 (`maindb`), Redis, and RabbitMQ
   (the event queue).
 
+## Documentation
+
+- [Access context (rules, code map and tests)](docs/access-context.md)
+- [Context map](docs/context-map.md)
+
 ## Prerequisites
 
 - Java 25 (the backend ships its own Maven wrapper, so no separate Maven install is needed)
