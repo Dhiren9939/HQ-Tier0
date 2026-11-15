@@ -1,26 +1,21 @@
 package me.dhiren9939.backend.integration;
 
+import me.dhiren9939.backend.access.application.usecase.service.verify.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
-import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
+import me.dhiren9939.backend.common.access.VerificationFailureCode;
+import me.dhiren9939.backend.common.access.VerifyApiKeyQuery;
+import me.dhiren9939.backend.access.application.usecase.service.verify.VerifiedApiKey;
 import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeCommand;
+import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
-import me.dhiren9939.backend.access.application.usecase.service.verify.VerifiedApiKey;
-import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyQuery;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
-import me.dhiren9939.backend.shared.access.VerificationFailureCode;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.Scope;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeFailureReason;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeRejected;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -256,7 +251,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
                 .as("revision 1 is no longer the pending one").isInstanceOf(ApiKeyUpdateFailure.class);
         assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 3, "data-plane")))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", FailureReason.REJECTED)))
+        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", ApiKeyChangeFailureReason.REJECTED)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
 
         assertThat(outbox()).hasSize(events);
@@ -283,7 +278,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "lost", null, null));
         int events = outbox().size();
 
-        rejectChange.handle(new ApiKeyChangeRejected(id, 2, "data-plane", FailureReason.CONFIRM_TIMEOUT));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 2, "data-plane", ApiKeyChangeFailureReason.CONFIRM_TIMEOUT));
 
         List<OutboxRow> afterReject = outbox();
         assertThat(afterReject).hasSize(events + 1);
@@ -359,7 +354,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         UUID id = issueActive(owner, "survivor", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
 
-        rejectChange.handle(new ApiKeyChangeRejected(id, 2, "data-plane", FailureReason.REJECTED));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 2, "data-plane", ApiKeyChangeFailureReason.REJECTED));
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
 
         List<OutboxRow> afterReject = outbox();
@@ -409,7 +404,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     void failedCreation() {
         UUID id = issue(owner, "never", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
 
-        rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", FailureReason.OUTBOX_PUBLISH_FAILURE));
+        rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", ApiKeyChangeFailureReason.OUTBOX_PUBLISH_FAILURE));
 
         ApiKeyView failed = view(owner, id);
         assertThat(failed.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);

@@ -1,15 +1,14 @@
 package me.dhiren9939.backend.access.presentation.api.controllers;
 
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import me.dhiren9939.backend.access.application.usecase.service.confirm.ConfirmChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.service.reject.RejectChangeUseCase;
 import me.dhiren9939.backend.access.presentation.api.dtos.ConfirmRequestDto;
 import me.dhiren9939.backend.access.presentation.api.dtos.RejectRequestDto;
-
-import lombok.RequiredArgsConstructor;
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
-import me.dhiren9939.backend.access.application.usecase.service.confirm.ConfirmChangeUseCase;
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
-import me.dhiren9939.backend.access.application.usecase.service.reject.RejectChangeUseCase;
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeFailureReason;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeRejected;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -40,8 +39,8 @@ class ApiKeyInternalController {
     @PostMapping("/reject")
     public ResponseEntity<Void> reject(@PathVariable UUID apiKeyId, @PathVariable long revision,
                                        @Valid @RequestBody RejectRequestDto request) {
-        FailureReason reason = request.reason() == null
-                ? FailureReason.REJECTED
+        ApiKeyChangeFailureReason reason = request.reason() == null
+                ? ApiKeyChangeFailureReason.REJECTED
                 : request.reason();
         rejectChange.handle(new ApiKeyChangeRejected(apiKeyId, revision, request.issuer(), reason));
         return ResponseEntity.noContent().build();

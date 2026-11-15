@@ -1,7 +1,7 @@
 package me.dhiren9939.backend.integration;
 
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
 import me.dhiren9939.backend.access.application.usecase.service.confirm.ConfirmChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
@@ -11,13 +11,9 @@ import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyUs
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyUseCase;
-import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyQuery;
-import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyUseCase;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.Scope;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
+import me.dhiren9939.backend.common.access.VerifyApiKeyQuery;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

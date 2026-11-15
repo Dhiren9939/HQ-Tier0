@@ -1,19 +1,12 @@
 package me.dhiren9939.backend.access.application.usecase.service.confirm;
 
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
-
-import me.dhiren9939.backend.access.application.usecase.Fixtures;
 import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
-
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;

@@ -1,32 +1,27 @@
 package me.dhiren9939.backend.access.presentation.api.controllers;
 
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
-import me.dhiren9939.backend.shared.access.Scope;
+import me.dhiren9939.backend.access.application.usecase.service.verify.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
 import me.dhiren9939.backend.access.application.usecase.service.confirm.ConfirmChangeUseCase;
-import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
+import me.dhiren9939.backend.access.application.usecase.service.reject.RejectChangeUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeCommand;
 import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeUseCase;
+import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.get.GetApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
-import me.dhiren9939.backend.access.application.usecase.service.reject.RejectChangeUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyUseCase;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.shared.access.Permissions;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeFailureReason;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeRejected;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -40,7 +35,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Standalone MockMvc: checks routing, JSON shapes, command mapping and the exception-to-status advice. */
 class ApiKeyControllerTest {
@@ -214,8 +210,8 @@ class ApiKeyControllerTest {
                 .andExpect(status().isNoContent());
         assertThat(received).containsExactly(
                 new ApiKeyChangeConfirmed(KEY_ID, 3, "data-plane"),
-                new ApiKeyChangeRejected(KEY_ID, 3, "data-plane", FailureReason.REJECTED),
-                new ApiKeyChangeRejected(KEY_ID, 4, "data-plane", FailureReason.CONFIRM_TIMEOUT));
+                new ApiKeyChangeRejected(KEY_ID, 3, "data-plane", ApiKeyChangeFailureReason.REJECTED),
+                new ApiKeyChangeRejected(KEY_ID, 4, "data-plane", ApiKeyChangeFailureReason.CONFIRM_TIMEOUT));
     }
 
     @Test

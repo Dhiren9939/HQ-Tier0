@@ -1,9 +1,8 @@
 package me.dhiren9939.backend.access.infrastructure.persistence;
 
-import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
-
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.PendingChange;
+import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
 import org.hibernate.boot.Metadata;
 import org.hibernate.boot.MetadataSources;
 import org.hibernate.boot.registry.StandardServiceRegistry;
@@ -84,11 +83,11 @@ class JpaMappingTest {
     }
 
     @Test
-    void theOutboxKeepsPermissionsAsOneTextColumnAndHasNoExpiry() {
+    void theOutboxKeepsPermissionsAsOneTextColumnAndCarriesExpiry() {
         List<String> columns = columns(entityTable(EventOutboxEntity.class));
 
-        assertThat(columns).contains("permissions", "occurred_at", "emitted_at");
-        assertThat(columns).doesNotContain("expires_at", "ingestion_permission");
+        assertThat(columns).contains("permissions", "occurred_at", "emitted_at", "created_at", "expires_at");
+        assertThat(columns).doesNotContain("ingestion_permission");
     }
 
     @Test

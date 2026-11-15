@@ -1,11 +1,5 @@
 package me.dhiren9939.backend.access.presentation.api.controllers;
 
-import me.dhiren9939.backend.access.presentation.api.dtos.ApiKeyStatus;
-import me.dhiren9939.backend.access.presentation.api.dtos.CreateRequestDto;
-import me.dhiren9939.backend.access.presentation.api.dtos.CreateResponseDto;
-import me.dhiren9939.backend.access.presentation.api.dtos.GetResponseDto;
-import me.dhiren9939.backend.access.presentation.api.dtos.UpdateRequestDto;
-
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
@@ -22,10 +16,11 @@ import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyUs
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyUseCase;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.Scope;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Scope;
+import me.dhiren9939.backend.access.presentation.api.dtos.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

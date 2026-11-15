@@ -7,9 +7,7 @@ import com.tngtech.archunit.lang.ArchRule;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
-import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
-import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.*;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
@@ -25,7 +23,7 @@ class ArchitectureTest {
     private static final String APPLICATION = ROOT + ".access.application..";
     private static final String PRESENTATION = ROOT + ".access.presentation..";
     private static final String INFRASTRUCTURE = ROOT + ".access.infrastructure..";
-    private static final String SHARED = ROOT + ".shared..";
+    private static final String COMMON = ROOT + ".common..";
     /** What the key's owner asks for: issue, get, update, delete, dismiss, cancel. */
     private static final String USER_USE_CASES = ROOT + ".access.application.usecase.user..";
     /** What other services ask for: confirm, reject, verify. */
@@ -44,9 +42,10 @@ class ArchitectureTest {
     void theDomainDependsOnNoOtherLayer() {
         ArchRule rule = classes().that().resideInAPackage(DOMAIN)
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
-                        DOMAIN, SHARED, "java..", "jakarta.persistence..", "lombok..",
+                        DOMAIN, "java..", "jakarta.persistence..", "lombok..",
                         "com.github.f4b6a3.uuid..", "org.jspecify..")
-                .because("the domain may use JPA annotations, lombok, a UUID generator and the published contracts, nothing else");
+                .because("the domain may use JPA annotations, lombok and a UUID generator, nothing else; "
+                        + "the common contracts are reached through the application's mapper instead");
         rule.check(mainClasses);
     }
 
@@ -58,11 +57,11 @@ class ArchitectureTest {
     }
 
     @Test
-    void sharedContractsAreFreeOfFrameworksAndOfAccessInternals() {
-        ArchRule rule = classes().that().resideInAPackage(SHARED)
+    void commonContractsAreFreeOfFrameworksAndOfAccessInternals() {
+        ArchRule rule = classes().that().resideInAPackage(COMMON)
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
-                        SHARED, "java..", "lombok..")
-                .because("published contracts must not leak JPA, Spring or JSON libraries, nor depend on a context's internals");
+                        COMMON, "java..", "lombok..")
+                .because("published contracts must not leak JPA, Spring, JSON libraries or domain internals");
         rule.check(mainClasses);
     }
 
@@ -115,7 +114,7 @@ class ArchitectureTest {
 
     @Test
     void publishedContractsNeverDependOnAContextInternals() {
-        ArchRule rule = classes().that().resideInAPackage(SHARED)
+        ArchRule rule = classes().that().resideInAPackage(COMMON)
                 .should().onlyDependOnClassesThat().resideOutsideOfPackage(ROOT + ".access..");
         rule.check(mainClasses);
     }

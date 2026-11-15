@@ -1,9 +1,5 @@
 package me.dhiren9939.backend.access.domain.aggregates.apikey;
 
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.Scope;
-
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;

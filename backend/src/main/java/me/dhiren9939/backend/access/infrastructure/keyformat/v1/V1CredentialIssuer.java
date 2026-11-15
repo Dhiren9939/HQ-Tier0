@@ -2,10 +2,10 @@ package me.dhiren9939.backend.access.infrastructure.keyformat.v1;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import lombok.RequiredArgsConstructor;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
 import me.dhiren9939.backend.access.infrastructure.keyformat.CredentialIssuer;
 import me.dhiren9939.backend.access.infrastructure.keyformat.Sha256SecretHasher;
 import me.dhiren9939.backend.access.infrastructure.keyformat.SortableEncoder;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
 import org.springframework.stereotype.Component;
 
 import java.security.SecureRandom;

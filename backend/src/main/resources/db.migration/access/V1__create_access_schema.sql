@@ -62,5 +62,6 @@ CREATE TABLE access.outbox(
     -- JSON object keyed by scope name, e.g. {"INGESTION":"WRITE"}; absent scope = NONE
     permissions TEXT NOT NULL,
 
-    created_at TIMESTAMPTZ NOT NULL
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ
 );

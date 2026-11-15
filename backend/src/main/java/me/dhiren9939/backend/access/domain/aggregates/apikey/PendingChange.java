@@ -1,14 +1,10 @@
 package me.dhiren9939.backend.access.domain.aggregates.apikey;
 
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
+import com.github.f4b6a3.uuid.UuidCreator;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import com.github.f4b6a3.uuid.UuidCreator;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.Scope;
 
 import java.time.Instant;
 import java.util.EnumMap;
@@ -63,7 +59,7 @@ public class PendingChange {
     @Enumerated(EnumType.STRING)
     @Column(name = "access_level", nullable = false, length = 50)
     @Getter(AccessLevel.NONE)
-    private Map<Scope, me.dhiren9939.backend.shared.access.AccessLevel> permissionLevels = new EnumMap<>(Scope.class);
+    private Map<Scope, me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel> permissionLevels = new EnumMap<>(Scope.class);
 
     private Instant expiresAt;
 

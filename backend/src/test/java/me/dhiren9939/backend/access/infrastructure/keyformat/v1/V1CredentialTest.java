@@ -1,8 +1,8 @@
 package me.dhiren9939.backend.access.infrastructure.keyformat.v1;
 
+import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
 import me.dhiren9939.backend.access.infrastructure.keyformat.Sha256SecretHasher;
 import me.dhiren9939.backend.access.infrastructure.keyformat.SortableEncoder;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
 import org.junit.jupiter.api.Test;
 
 import java.security.SecureRandom;

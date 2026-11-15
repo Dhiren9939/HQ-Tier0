@@ -1,17 +1,14 @@
 package me.dhiren9939.backend.access.infrastructure.persistence.models;
 
 
-
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Scope;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.outbound.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.UpdateApiKeyProjectionCommand;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,7 +20,12 @@ class EventOutboxEntityTest {
     private static final Instant CREATED_AT = Instant.parse("2026-01-15T11:00:00Z");
     private static final UUID API_KEY_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    private static final Permissions PERMISSIONS = Permissions.none().with(Scope.INGESTION, AccessLevel.WRITE).with(Scope.TENANT, AccessLevel.READ);
+    private static final Map<String, String> PERMISSIONS = new LinkedHashMap<>();
+
+    static {
+        PERMISSIONS.put("INGESTION", "WRITE");
+        PERMISSIONS.put("TENANT", "READ");
+    }
 
     @Test
     void createdEventBecomesARowWithTheSecretHash() {
@@ -69,10 +71,12 @@ class EventOutboxEntityTest {
 
     @Test
     void permissionsAreStoredAsAJsonObjectKeyedByScopeWithAbsentMeaningNone() {
-        assertThat(EventOutboxEntity.permissionsJson(Permissions.none())).isEqualTo("{}");
-        assertThat(EventOutboxEntity.permissionsJson(
-                Permissions.none().with(Scope.CHANNEL, AccessLevel.READ_WRITE).with(Scope.INGESTION, AccessLevel.WRITE)))
-                .isEqualTo("{\"INGESTION\":\"WRITE\",\"CHANNEL\":\"READ_WRITE\"}");
+        assertThat(EventOutboxEntity.permissionsJson(Map.of())).isEqualTo("{}");
+        Map<String, String> permissions = new LinkedHashMap<>();
+        permissions.put("CHANNEL", "READ_WRITE");
+        permissions.put("INGESTION", "WRITE");
+        assertThat(EventOutboxEntity.permissionsJson(permissions))
+                .isEqualTo("{\"CHANNEL\":\"READ_WRITE\",\"INGESTION\":\"WRITE\"}");
     }
 
 }

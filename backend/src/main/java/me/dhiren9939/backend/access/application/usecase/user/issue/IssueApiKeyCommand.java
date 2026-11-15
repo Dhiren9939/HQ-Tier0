@@ -1,7 +1,7 @@
 package me.dhiren9939.backend.access.application.usecase.user.issue;
 
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.shared.access.Permissions;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 
 import java.util.UUID;
 

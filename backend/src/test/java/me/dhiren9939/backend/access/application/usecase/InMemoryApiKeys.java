@@ -1,15 +1,11 @@
 package me.dhiren9939.backend.access.application.usecase;
 
-import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
+import me.dhiren9939.backend.access.application.events.ApiKeyProjectionMapper;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.shared.access.events.outbound.ApiKeyProjectionCommand;
+import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyProjectionCommand;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * In-memory stand-in for {@link ApiKeys}. Like the real implementation it collects the projection commands a key
@@ -23,7 +19,7 @@ public class InMemoryApiKeys implements ApiKeys {
 
     /** Puts a key into the store as if it had been persisted earlier; its pending events are discarded. */
     public ApiKey existing(ApiKey key) {
-        key.pullProjectionCommands();
+        key.pullDomainEvents();
         store.put(key.getApiKeyId(), key);
         return key;
     }
@@ -61,7 +57,9 @@ public class InMemoryApiKeys implements ApiKeys {
     }
 
     private void record(ApiKey key) {
-        publishedEvents.addAll(key.pullProjectionCommands());
+        key.pullDomainEvents().stream()
+                .map(ApiKeyProjectionMapper::toProjectionCommand)
+                .forEach(publishedEvents::add);
     }
 
     @Override

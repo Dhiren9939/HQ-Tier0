@@ -1,6 +1,6 @@
 package me.dhiren9939.backend.access.application.usecase.service.verify;
 
-import me.dhiren9939.backend.shared.access.Permissions;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 
 import java.time.Instant;
 import java.util.UUID;

@@ -1,12 +1,10 @@
 package me.dhiren9939.backend.access.application.usecase.user.issue;
 
-import me.dhiren9939.backend.access.application.usecase.Fixtures;
 import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
-
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.CreateApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

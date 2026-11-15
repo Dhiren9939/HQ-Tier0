@@ -1,9 +1,6 @@
 package me.dhiren9939.backend.access.domain.aggregates.apikey;
 
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.InvalidPermissionsException;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.Scope;
+import me.dhiren9939.backend.access.domain.exceptions.InvalidPermissionsException;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;

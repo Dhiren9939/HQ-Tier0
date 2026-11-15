@@ -1,16 +1,13 @@
 package me.dhiren9939.backend.access.application.usecase.service.verify;
 
-import me.dhiren9939.backend.access.application.usecase.Fixtures;
-import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
-
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Scope;
-import java.util.Map;
 import me.dhiren9939.backend.access.application.interfaces.CredentialVerifier;
+import me.dhiren9939.backend.common.access.VerificationFailureCode;
+import me.dhiren9939.backend.common.access.VerifyApiKeyQuery;
+import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
-import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
-import me.dhiren9939.backend.shared.access.VerificationFailureCode;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Scope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +16,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import static me.dhiren9939.backend.access.application.usecase.Fixtures.*;
 import static org.assertj.core.api.Assertions.assertThat;

@@ -1,7 +1,7 @@
 package me.dhiren9939.backend.access.infrastructure.config;
 
-import me.dhiren9939.backend.access.infrastructure.keyformat.CredentialIssuer;
 import me.dhiren9939.backend.access.application.interfaces.IssueCredentialPort;
+import me.dhiren9939.backend.access.infrastructure.keyformat.CredentialIssuer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

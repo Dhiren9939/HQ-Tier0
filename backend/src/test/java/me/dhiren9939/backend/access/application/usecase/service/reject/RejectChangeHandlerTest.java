@@ -1,20 +1,16 @@
 package me.dhiren9939.backend.access.application.usecase.service.reject;
 
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
-
-import me.dhiren9939.backend.access.application.usecase.Fixtures;
 import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
-
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeConfirmed;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
-import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeStatus;
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
-import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.FailureReason;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeFailureReason;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeRejected;
+import me.dhiren9939.backend.common.access.events.outbound.DeleteApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -34,7 +30,7 @@ class RejectChangeHandlerTest {
         handler = new RejectChangeHandler(apiKeys, CLOCK, transactions());
     }
 
-    private void reject(ApiKey key, long revision, FailureReason reason) {
+    private void reject(ApiKey key, long revision, ApiKeyChangeFailureReason reason) {
         handler.handle(new ApiKeyChangeRejected(key.getApiKeyId(), revision, "data-plane", reason));
     }
 
@@ -42,7 +38,7 @@ class RejectChangeHandlerTest {
     void rejectingTheCreationFailsProvisioning() {
         ApiKey key = apiKeys.existing(provisioning());
 
-        reject(key, 1, FailureReason.REJECTED);
+        reject(key, 1, ApiKeyChangeFailureReason.REJECTED);
 
         assertThat(key.state(NOW)).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
         assertThat(key.getPendingChange().getStatus()).isEqualTo(ChangeStatus.FAILED);
@@ -55,13 +51,13 @@ class RejectChangeHandlerTest {
 
     @Test
     void everyFailureReasonIsRecorded() {
-        for (FailureReason reason : FailureReason.values()) {
+        for (ApiKeyChangeFailureReason reason : ApiKeyChangeFailureReason.values()) {
             ApiKey key = apiKeys.existing(changePending());
 
             reject(key, 2, reason);
 
             assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_FAILED);
-            assertThat(key.getPendingChange().getFailureReason()).isEqualTo(reason);
+            assertThat(key.getPendingChange().getFailureReason()).isEqualTo(FailureReason.valueOf(reason.name()));
         }
     }
 
@@ -69,7 +65,7 @@ class RejectChangeHandlerTest {
     void aStaleRevisionIsRefused() {
         ApiKey key = apiKeys.existing(changePending());
 
-        assertThatThrownBy(() -> reject(key, 1, FailureReason.REJECTED)).isInstanceOf(ApiKeyUpdateFailure.class);
+        assertThatThrownBy(() -> reject(key, 1, ApiKeyChangeFailureReason.REJECTED)).isInstanceOf(ApiKeyUpdateFailure.class);
         assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
         assertThat(apiKeys.saves).isZero();
     }
@@ -83,7 +79,7 @@ class RejectChangeHandlerTest {
 
     @Test
     void unknownKeyIsNotFound() {
-        assertThatThrownBy(() -> handler.handle(new ApiKeyChangeRejected(UUID.randomUUID(), 1, "data-plane", FailureReason.REJECTED)))
+        assertThatThrownBy(() -> handler.handle(new ApiKeyChangeRejected(UUID.randomUUID(), 1, "data-plane", ApiKeyChangeFailureReason.REJECTED)))
                 .isInstanceOf(ApiKeyNotFoundException.class);
     }
 
@@ -92,7 +88,7 @@ class RejectChangeHandlerTest {
         handler = new RejectChangeHandler(apiKeys, CLOCK, transactions(alwaysConflicts()));
         ApiKey key = apiKeys.existing(changePending());
 
-        assertThatThrownBy(() -> reject(key, 2, FailureReason.REJECTED)).isInstanceOf(ApiKeyUpdateFailure.class);
+        assertThatThrownBy(() -> reject(key, 2, ApiKeyChangeFailureReason.REJECTED)).isInstanceOf(ApiKeyUpdateFailure.class);
         assertThat(apiKeys.saves).isZero();
     }
 }

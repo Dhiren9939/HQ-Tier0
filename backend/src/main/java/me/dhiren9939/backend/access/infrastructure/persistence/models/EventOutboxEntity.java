@@ -2,13 +2,10 @@ package me.dhiren9939.backend.access.infrastructure.persistence.models;
 
 import jakarta.persistence.*;
 import lombok.*;
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.Scope;
-import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.outbound.ApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.outbound.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.CreateApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.UpdateApiKeyProjectionCommand;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
@@ -69,6 +66,7 @@ public class EventOutboxEntity {
     @Column(nullable = false)
     private Instant createdAt;
 
+    private Instant expiresAt;
 
     public static EventOutboxEntity of(ApiKeyProjectionCommand event) {
         return switch (event) {
@@ -91,6 +89,7 @@ public class EventOutboxEntity {
                 .apiKeyName(event.apiKeyName())
                 .permissions(permissionsJson(event.permissions()))
                 .createdAt(event.createdAt())
+                .expiresAt(event.expiresAt())
                 .build();
     }
 
@@ -106,6 +105,7 @@ public class EventOutboxEntity {
                 .apiKeyName(event.apiKeyName())
                 .permissions(permissionsJson(event.permissions()))
                 .createdAt(event.createdAt())
+                .expiresAt(event.expiresAt())
                 .build();
     }
 
@@ -121,17 +121,18 @@ public class EventOutboxEntity {
                 .apiKeyName(event.apiKeyName())
                 .permissions(permissionsJson(event.permissions()))
                 .createdAt(event.createdAt())
+                .expiresAt(event.expiresAt())
                 .build();
     }
 
     /** Serialises explicitly (scope and level names only contain letters and underscores, so no escaping). */
-    static String permissionsJson(Permissions permissions) {
+    static String permissionsJson(Map<String, String> permissions) {
         StringBuilder json = new StringBuilder("{");
         boolean first = true;
-        for (Map.Entry<Scope, AccessLevel> entry : permissions.asMap().entrySet()) {
+        for (Map.Entry<String, String> entry : permissions.entrySet()) {
             if (!first)
                 json.append(',');
-            json.append('"').append(entry.getKey().name()).append("\":\"").append(entry.getValue().name()).append('"');
+            json.append('"').append(entry.getKey()).append("\":\"").append(entry.getValue()).append('"');
             first = false;
         }
         return json.append('}').toString();

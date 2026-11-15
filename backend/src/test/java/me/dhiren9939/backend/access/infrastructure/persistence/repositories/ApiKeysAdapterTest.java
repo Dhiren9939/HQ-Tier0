@@ -1,10 +1,9 @@
 package me.dhiren9939.backend.access.infrastructure.persistence.repositories;
 
-import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
-
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
-import me.dhiren9939.backend.shared.access.Permissions;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
+import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,13 +51,13 @@ class ApiKeysAdapterTest {
         verify(outboxRepository).save(row.capture());
         assertThat(row.getValue().getEventType()).isEqualTo("apiKey.projection.create");
         assertThat(row.getValue().getApiKeyId()).isEqualTo(key.getApiKeyId());
-        assertThat(key.pullProjectionCommands()).as("events are drained once written").isEmpty();
+        assertThat(key.pullDomainEvents()).as("events are drained once written").isEmpty();
     }
 
     @Test
     void savingAKeyWithoutNewEventsWritesNothing() {
         ApiKey key = newKey();
-        key.pullProjectionCommands();
+        key.pullDomainEvents();
         when(repository.save(key)).thenReturn(key);
 
         adapter.save(key);

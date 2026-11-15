@@ -2,11 +2,11 @@ package me.dhiren9939.backend.access.application.usecase.service.verify;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
 import me.dhiren9939.backend.access.application.interfaces.CredentialVerifier;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
-import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
+import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
+import me.dhiren9939.backend.common.access.VerifyApiKeyQuery;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

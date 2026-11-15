@@ -20,7 +20,8 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
             "api_key_permissions", List.of("api_key_id", "scope", "access_level"),
             "pending_change_permissions", List.of("change_id", "scope", "access_level"),
             "outbox", List.of("event_id", "event_type", "api_key_id", "change_version", "occurred_at", "emitted_at",
-                    "user_id", "access_id", "access_secret_hash", "api_key_name", "permissions", "created_at"));
+                    "user_id", "access_id", "access_secret_hash", "api_key_name", "permissions", "created_at",
+                    "expires_at"));
 
     @Test
     @DisplayName("schema `access` exists and nothing was created in `public`")
@@ -51,14 +52,13 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("per-scope permission columns and the event expiry column are gone")
+    @DisplayName("per-scope permission columns and version-tracking columns are gone")
     void removedColumnsAreGone() {
         List<String> removed = jdbc.queryForList("""
                 select table_name || '.' || column_name from information_schema.columns
                 where table_schema = 'access'
                   and (column_name in ('ingestion_permission', 'tenant_permission', 'channel_permission',
-                                       'applied_version', 'issued_version', 'desired_version')
-                       or (table_name = 'outbox' and column_name = 'expires_at'))
+                                       'applied_version', 'issued_version', 'desired_version'))
                 """, String.class);
         assertThat(removed).isEmpty();
     }

@@ -3,9 +3,9 @@ package me.dhiren9939.backend.access.presentation.api.dtos;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Scope;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Scope;
 
 import java.util.Map;
 

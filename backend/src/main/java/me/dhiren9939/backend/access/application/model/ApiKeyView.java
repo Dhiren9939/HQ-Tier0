@@ -3,7 +3,7 @@ package me.dhiren9939.backend.access.application.model;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
-import me.dhiren9939.backend.shared.access.Permissions;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 
 import java.time.Instant;
 import java.util.UUID;

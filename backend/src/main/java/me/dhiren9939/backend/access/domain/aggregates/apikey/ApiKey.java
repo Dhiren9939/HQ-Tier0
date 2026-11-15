@@ -1,29 +1,19 @@
 package me.dhiren9939.backend.access.domain.aggregates.apikey;
 
-import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
-
-import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 import com.github.f4b6a3.uuid.UuidCreator;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.Scope;
-import me.dhiren9939.backend.shared.access.events.outbound.ApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.outbound.CreateApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.outbound.DeleteApiKeyProjectionCommand;
-import me.dhiren9939.backend.shared.access.events.outbound.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
+import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
+import me.dhiren9939.backend.access.domain.events.ApiKeyCreated;
+import me.dhiren9939.backend.access.domain.events.ApiKeyDeleted;
+import me.dhiren9939.backend.access.domain.events.ApiKeyEvent;
+import me.dhiren9939.backend.access.domain.events.ApiKeyUpdated;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * The API key aggregate. It owns every rule about how a key is issued, changed, confirmed by the
@@ -32,8 +22,8 @@ import java.util.UUID;
  * <p>The attributes held directly on this class (name, permissions, expiry) are the <em>confirmed</em> ones.
  * A requested change lives in {@link #pendingChange} until the data plane confirms it.</p>
  *
- * <p>Every command that requests a revision also registers the matching projection command. The persistence
- * layer collects them with {@link #pullProjectionCommands()} after saving the key.</p>
+ * <p>Every command that requests a revision also registers the matching domain event. The persistence layer
+ * collects them with {@link #pullDomainEvents()} after saving the key and maps them to the published contract.</p>
  */
 @Entity
 @Getter
@@ -68,7 +58,7 @@ public class ApiKey {
     @Enumerated(EnumType.STRING)
     @Column(name = "access_level", nullable = false, length = 50)
     @Getter(AccessLevel.NONE)
-    private Map<Scope, me.dhiren9939.backend.shared.access.AccessLevel> permissionLevels = new EnumMap<>(Scope.class);
+    private Map<Scope, me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel> permissionLevels = new EnumMap<>(Scope.class);
 
     @Column(nullable = false)
     private Instant createdAt;
@@ -97,7 +87,7 @@ public class ApiKey {
     /** Events registered by commands and not yet collected. Not persisted. */
     @Transient
     @Getter(AccessLevel.NONE)
-    private final List<ApiKeyProjectionCommand> projectionCommands = new ArrayList<>();
+    private final List<ApiKeyEvent> pendingEvents = new ArrayList<>();
 
     // ---------------------------------------------------------------------------------------------
     // Commands
@@ -119,7 +109,7 @@ public class ApiKey {
         key.confirmedRevision = 0;
         key.pendingChange = PendingChange.requested(1, ChangeKind.CREATE, createdAt,
                 apiKeyName, permissions, expiresAt);
-        key.projectionCommands.add(key.createdEvent(createdAt));
+        key.pendingEvents.add(key.createdEvent(createdAt));
         return key;
     }
 
@@ -159,7 +149,7 @@ public class ApiKey {
 
         revision++;
         pendingChange = PendingChange.requested(revision, ChangeKind.UPDATE, now, name, updatedPermissions, expiry);
-        projectionCommands.add(updatedEvent(now));
+        pendingEvents.add(updatedEvent(now));
         return true;
     }
 
@@ -170,7 +160,7 @@ public class ApiKey {
         revision++;
         pendingChange = PendingChange.requested(revision, ChangeKind.DELETE, now,
                 apiKeyName, getPermissions(), expiresAt);
-        projectionCommands.add(deletedEvent(now));
+        pendingEvents.add(deletedEvent(now));
     }
 
     /** The data plane confirmed the pending change at {@code revision}. */
@@ -217,7 +207,7 @@ public class ApiKey {
         change.fail(reason);
 
         this.revision++;
-        projectionCommands.add(switch (change.getKind()) {
+        pendingEvents.add(switch (change.getKind()) {
             case CREATE -> deletedEvent(now, desiredState());
             case UPDATE -> updatedEvent(now, confirmedState());
             case DELETE -> createdEvent(now, confirmedState());
@@ -241,9 +231,9 @@ public class ApiKey {
     }
 
     /** Returns the events registered since the last call, in order, and forgets them. */
-    public List<ApiKeyProjectionCommand> pullProjectionCommands() {
-        List<ApiKeyProjectionCommand> events = List.copyOf(projectionCommands);
-        projectionCommands.clear();
+    public List<ApiKeyEvent> pullDomainEvents() {
+        List<ApiKeyEvent> events = List.copyOf(pendingEvents);
+        pendingEvents.clear();
         return events;
     }
 
@@ -309,56 +299,31 @@ public class ApiKey {
 
     // ---------------------------------------------------------------------------------------------
 
-    private CreateApiKeyProjectionCommand createdEvent(Instant now) {
+    private ApiKeyCreated createdEvent(Instant now) {
         return createdEvent(now, desiredState());
     }
 
-    private CreateApiKeyProjectionCommand createdEvent(Instant now, DesiredState desired) {
-        return CreateApiKeyProjectionCommand.builder()
-                .apiKeyName(desired.apiKeyName())
-                .apiKeyId(apiKeyId)
-                .version(revision)
-                .occurredAt(now)
-                .userId(userId)
-                .accessId(accessId)
-                .accessSecretHash(accessSecretHash)
-                .permissions(desired.permissions())
-                .createdAt(createdAt)
-                .build();
+    private ApiKeyCreated createdEvent(Instant now, DesiredState desired) {
+        return new ApiKeyCreated(desired.apiKeyName(), apiKeyId, revision, now,
+                userId, accessId, accessSecretHash, desired.permissions(), createdAt, expiresAt);
     }
 
-    private UpdateApiKeyProjectionCommand updatedEvent(Instant now) {
+    private ApiKeyUpdated updatedEvent(Instant now) {
         return updatedEvent(now, desiredState());
     }
 
-    private UpdateApiKeyProjectionCommand updatedEvent(Instant now, DesiredState desired) {
-        return UpdateApiKeyProjectionCommand.builder()
-                .apiKeyName(desired.apiKeyName())
-                .apiKeyId(apiKeyId)
-                .version(revision)
-                .occurredAt(now)
-                .userId(userId)
-                .accessId(accessId)
-                .permissions(desired.permissions())
-                .createdAt(createdAt)
-                .build();
+    private ApiKeyUpdated updatedEvent(Instant now, DesiredState desired) {
+        return new ApiKeyUpdated(desired.apiKeyName(), apiKeyId, revision, now,
+                userId, accessId, desired.permissions(), createdAt, expiresAt);
     }
 
-    private DeleteApiKeyProjectionCommand deletedEvent(Instant now) {
+    private ApiKeyDeleted deletedEvent(Instant now) {
         return deletedEvent(now, desiredState());
     }
 
-    private DeleteApiKeyProjectionCommand deletedEvent(Instant now, DesiredState desired) {
-        return DeleteApiKeyProjectionCommand.builder()
-                .apiKeyName(desired.apiKeyName())
-                .apiKeyId(apiKeyId)
-                .version(revision)
-                .occurredAt(now)
-                .userId(userId)
-                .accessId(accessId)
-                .permissions(desired.permissions())
-                .createdAt(createdAt)
-                .build();
+    private ApiKeyDeleted deletedEvent(Instant now, DesiredState desired) {
+        return new ApiKeyDeleted(desired.apiKeyName(), apiKeyId, revision, now,
+                userId, accessId, desired.permissions(), createdAt, expiresAt);
     }
 
     private void assignPermissions(Permissions permissions) {

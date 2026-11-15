@@ -5,11 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
@@ -118,7 +114,7 @@ public class WebExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
      * An unknown or mistyped value. An enum value that is not one of the constants is named after the enum
-     * ({@code INVALID_SCOPE}, {@code INVALID_ACCESS_LEVEL}, {@code INVALID_LIFETIME}, {@code INVALID_FAILURE_REASON}),
+     * ({@code INVALID_SCOPE}, {@code INVALID_ACCESS_LEVEL}, {@code INVALID_LIFETIME}, {@code INVALID_API_KEY_CHANGE_FAILURE_REASON}),
      * which also covers map keys and values nested in the body; anything else is named after its property
      * ({@code INVALID_NAME}). The {@code field} property says which top-level property of the body it is in.
      */

@@ -3,12 +3,10 @@ package me.dhiren9939.backend.access.application.usecase;
 import me.dhiren9939.backend.access.application.transaction.OptimisticLockRetry;
 import me.dhiren9939.backend.access.application.transaction.RetriedTransaction;
 
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Scope;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.FailureReason;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
-import me.dhiren9939.backend.shared.access.Permissions;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.PlatformTransactionManager;

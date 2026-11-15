@@ -1,14 +1,15 @@
 package me.dhiren9939.backend.access.presentation.api.controllers;
 
+import me.dhiren9939.backend.access.application.usecase.service.verify.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
+import me.dhiren9939.backend.common.access.VerificationFailureCode;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
+import me.dhiren9939.backend.access.domain.exceptions.InvalidPermissionsException;
 import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
-import me.dhiren9939.backend.shared.access.ApiKeyVerificationFailure;
-import me.dhiren9939.backend.shared.access.VerificationFailureCode;
-import me.dhiren9939.backend.shared.access.Permissions;
 import me.dhiren9939.backend.web.errors.WebExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,10 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.startsWith;
-import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -159,7 +157,7 @@ class ApiErrorHandlingTest {
         assertBadBody(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"NEVER\",\"permissions\":{\"NOPE\":\"READ\"}}"), "INVALID_SCOPE");
         assertBadBody(json(post(KEYS), "{\"name\":\"k\",\"expiry\":\"NEVER\",\"permissions\":{\"INGESTION\":\"SUPER\"}}"), "INVALID_ACCESS_LEVEL");
         assertBadBody(json(patch(KEYS + "/" + KEY_ID), "{\"expiry\":\"FOREVER\"}"), "INVALID_LIFETIME");
-        assertBadBody(json(post(REJECT), "{\"issuer\":\"a\",\"reason\":\"BORED\"}"), "INVALID_FAILURE_REASON");
+        assertBadBody(json(post(REJECT), "{\"issuer\":\"a\",\"reason\":\"BORED\"}"), "INVALID_API_KEY_CHANGE_FAILURE_REASON");
     }
 
     @Test
@@ -238,7 +236,7 @@ class ApiErrorHandlingTest {
                     .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(code.name()));
         }
 
-        failure = new me.dhiren9939.backend.shared.access.InvalidPermissionsException("nope");
+        failure = new InvalidPermissionsException("nope");
         mvc.perform(get(KEYS + "/" + KEY_ID))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_SCOPE_LEVEL"));
 

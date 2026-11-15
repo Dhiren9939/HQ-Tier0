@@ -1,23 +1,15 @@
 package me.dhiren9939.backend.access.application.usecase.user.update;
 
-import me.dhiren9939.backend.access.application.usecase.Fixtures;
-import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
-
-import me.dhiren9939.backend.shared.access.AccessLevel;
-import me.dhiren9939.backend.shared.access.Scope;
-import java.util.Map;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
+import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
-import me.dhiren9939.backend.shared.access.Permissions;
-import me.dhiren9939.backend.shared.access.events.outbound.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.UpdateApiKeyProjectionCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
 import java.util.UUID;
 
 import static me.dhiren9939.backend.access.application.usecase.Fixtures.*;
@@ -63,7 +55,7 @@ class UpdateApiKeyHandlerTest {
         update(key, null, null, new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.WRITE)));
 
         UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
-        assertThat(event.permissions()).isEqualTo(Permissions.none().with(Scope.INGESTION, AccessLevel.WRITE));
+        assertThat(event.permissions()).isEqualTo(Map.of("INGESTION", "WRITE"));
     }
 
     @Test

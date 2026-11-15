@@ -2,12 +2,11 @@ package me.dhiren9939.backend.integration;
 
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
-import me.dhiren9939.backend.shared.access.events.inbound.ApiKeyChangeRejected;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
-import me.dhiren9939.backend.shared.access.events.inbound.FailureReason;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeFailureReason;
+import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeRejected;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -100,7 +99,7 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
         UUID id = jdbcIssueNamedBoom();
         int events = outbox().size();
 
-        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", FailureReason.REJECTED)))
+        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", ApiKeyChangeFailureReason.REJECTED)))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.PROVISIONING);
