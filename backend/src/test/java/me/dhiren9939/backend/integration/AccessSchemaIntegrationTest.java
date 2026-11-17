@@ -13,12 +13,8 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
 
     private static final Map<String, List<String>> EXPECTED_COLUMNS = Map.of(
             "api_keys", List.of("api_key_id", "lock_version", "user_id", "access_id", "access_secret_hash",
-                    "api_key_name", "created_at", "expires_at", "deleted_at", "pending_change_id",
-                    "revision", "confirmed_revision"),
-            "pending_changes", List.of("change_id", "lock_version", "revision", "requested_at", "kind", "status",
-                    "failure_reason", "api_key_name", "expires_at"),
+                    "api_key_name", "created_at", "expires_at", "deleted_at", "revision"),
             "api_key_permissions", List.of("api_key_id", "scope", "access_level"),
-            "pending_change_permissions", List.of("change_id", "scope", "access_level"),
             "outbox", List.of("event_id", "event_type", "api_key_id", "change_version", "occurred_at", "emitted_at",
                     "user_id", "access_id", "access_secret_hash", "api_key_name", "permissions", "created_at",
                     "expires_at"));
@@ -52,15 +48,23 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("per-scope permission columns and version-tracking columns are gone")
+    @DisplayName("per-scope permission columns and saga-era columns and tables are gone")
     void removedColumnsAreGone() {
         List<String> removed = jdbc.queryForList("""
                 select table_name || '.' || column_name from information_schema.columns
                 where table_schema = 'access'
                   and (column_name in ('ingestion_permission', 'tenant_permission', 'channel_permission',
-                                       'applied_version', 'issued_version', 'desired_version'))
+                                       'applied_version', 'issued_version', 'desired_version',
+                                       'pending_change_id', 'confirmed_revision'))
                 """, String.class);
         assertThat(removed).isEmpty();
+
+        List<String> droppedTables = jdbc.queryForList("""
+                select table_name from information_schema.tables
+                where table_schema = 'access'
+                  and table_name in ('pending_changes', 'pending_change_permissions')
+                """, String.class);
+        assertThat(droppedTables).isEmpty();
     }
 
     @Test
@@ -73,12 +77,12 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
                   on kcu.constraint_name = tc.constraint_name and kcu.table_schema = tc.table_schema
                 where tc.table_schema = 'access' and tc.constraint_type = 'UNIQUE'
                 """, String.class);
-        assertThat(uniqueColumns).contains("api_keys.access_id", "api_keys.pending_change_id");
+        assertThat(uniqueColumns).contains("api_keys.access_id");
 
         Long foreignKeys = jdbc.queryForObject("""
                 select count(*) from information_schema.table_constraints
                 where table_schema = 'access' and constraint_type = 'FOREIGN KEY'
                 """, Long.class);
-        assertThat(foreignKeys).isEqualTo(3);
+        assertThat(foreignKeys).isEqualTo(1);
     }
 }

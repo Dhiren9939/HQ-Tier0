@@ -1,7 +1,6 @@
 package me.dhiren9939.backend.access.infrastructure.persistence;
 
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.PendingChange;
 import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
 import org.hibernate.boot.Metadata;
 import org.hibernate.boot.MetadataSources;
@@ -37,7 +36,6 @@ class JpaMappingTest {
                 .build();
         metadata = new MetadataSources(registry)
                 .addAnnotatedClass(ApiKey.class)
-                .addAnnotatedClass(PendingChange.class)
                 .addAnnotatedClass(EventOutboxEntity.class)
                 .buildMetadata();
     }
@@ -65,20 +63,8 @@ class JpaMappingTest {
     }
 
     @Test
-    void pendingChangePermissionsAreScopeToLevelRowsInTheAccessSchema() {
-        Table table = metadata.getCollectionBinding(PendingChange.class.getName() + ".permissionLevels")
-                .getCollectionTable();
-
-        assertThat(table.getSchema()).isEqualToIgnoringCase("access");
-        assertThat(table.getName()).isEqualTo("pending_change_permissions");
-        assertThat(columns(table)).containsExactlyInAnyOrder("change_id", "scope", "access_level");
-    }
-
-    @Test
     void thereAreNoPerScopeColumnsLeftOnTheEntityTables() {
         assertThat(columns(entityTable(ApiKey.class)))
-                .doesNotContain("ingestion_permission", "tenant_permission", "channel_permission");
-        assertThat(columns(entityTable(PendingChange.class)))
                 .doesNotContain("ingestion_permission", "tenant_permission", "channel_permission");
     }
 
@@ -92,7 +78,7 @@ class JpaMappingTest {
 
     @Test
     void everyEntityTableLivesInTheAccessSchema() {
-        for (Class<?> type : List.of(ApiKey.class, PendingChange.class, EventOutboxEntity.class))
+        for (Class<?> type : List.of(ApiKey.class, EventOutboxEntity.class))
             assertThat(entityTable(type).getSchema()).isEqualToIgnoringCase("access");
     }
 }

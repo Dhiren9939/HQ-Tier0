@@ -2,16 +2,15 @@ package me.dhiren9939.backend.access.application.model;
 
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 
 import java.time.Instant;
 import java.util.UUID;
 
-/** Secret-free read model of an API key as its owner sees it. {@code state} and {@code changeKind} (null when nothing is unsettled) are internal; the presentation layer derives what clients see. */
+/** Secret-free read model of an API key as its owner sees it. {@code state} is internal; the presentation layer derives what clients see. */
 public record ApiKeyView(UUID apiKeyId, UUID userId, String accessId, String apiKeyName,
                          Permissions permissions, Instant createdAt, Instant expiresAt,
-                         ApiKeyState state, ChangeKind changeKind) {
+                         ApiKeyState state) {
 
     public static ApiKeyView of(ApiKey key, Instant now) {
         return new ApiKeyView(
@@ -22,7 +21,6 @@ public record ApiKeyView(UUID apiKeyId, UUID userId, String accessId, String api
                 key.getPermissions(),
                 key.getCreatedAt(),
                 key.getExpiresAt(),
-                key.state(now),
-                key.getPendingChange() == null ? null : key.getPendingChange().getKind());
+                key.state(now));
     }
 }

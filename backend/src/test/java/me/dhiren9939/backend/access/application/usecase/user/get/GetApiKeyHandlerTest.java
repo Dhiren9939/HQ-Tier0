@@ -32,7 +32,7 @@ class GetApiKeyHandlerTest {
     }
 
     @Test
-    void ownerSeesAnActiveKeyWithoutAnyPendingStatus() {
+    void ownerSeesAnActiveKey() {
         ApiKey key = apiKeys.existing(active());
 
         ApiKeyView view = get(USER_ID, key);
@@ -44,24 +44,6 @@ class GetApiKeyHandlerTest {
         assertThat(view.createdAt()).isEqualTo(NOW);
         assertThat(view.expiresAt()).isEqualTo(ONE_MONTH_FROM_NOW);
         assertThat(view.state()).isEqualTo(ApiKeyState.ACTIVE);
-    }
-
-    @Test
-    void ownerCanReadAProvisioningKey() {
-        ApiKey key = apiKeys.existing(provisioning());
-
-        ApiKeyView view = get(USER_ID, key);
-
-        assertThat(view.state()).isEqualTo(ApiKeyState.PROVISIONING);
-    }
-
-    @Test
-    void failedCreationAndFailedChangeShowTheirState() {
-        ApiKey failedCreation = apiKeys.existing(provisioningFailed());
-        assertThat(get(USER_ID, failedCreation).state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
-
-        ApiKey failedChange = apiKeys.existing(changeFailed());
-        assertThat(get(USER_ID, failedChange).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
     }
 
     @Test

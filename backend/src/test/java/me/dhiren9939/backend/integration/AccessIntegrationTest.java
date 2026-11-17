@@ -1,10 +1,7 @@
 package me.dhiren9939.backend.integration;
 
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
-import me.dhiren9939.backend.access.application.usecase.service.confirm.ConfirmChangeUseCase;
-import me.dhiren9939.backend.access.application.usecase.service.reject.RejectChangeUseCase;
 import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyUseCase;
-import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.get.GetApiKeyQuery;
@@ -17,7 +14,6 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Scope;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -44,15 +40,11 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
     @Autowired protected UpdateApiKeyUseCase updateApiKey;
     @Autowired protected DeleteApiKeyUseCase deleteApiKey;
     @Autowired protected DismissApiKeyUseCase dismissApiKey;
-    @Autowired protected CancelApiKeyChangeUseCase cancelApiKeyChange;
-    @Autowired protected ConfirmChangeUseCase confirmChange;
-    @Autowired protected RejectChangeUseCase rejectChange;
     @Autowired protected VerifyApiKeyUseCase verifyApiKey;
 
     @BeforeEach
     void cleanDatabase() {
-        jdbc.execute("TRUNCATE access.outbox, access.api_key_permissions, access.pending_change_permissions, "
-                + "access.api_keys, access.pending_changes");
+        jdbc.execute("TRUNCATE access.outbox, access.api_key_permissions, access.api_keys");
         clock.reset();
     }
 
@@ -64,11 +56,9 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
         return issueApiKey.handle(new IssueApiKeyCommand(owner, name, lifetime, permissions));
     }
 
-    /** Issues a key and has the data plane confirm its creation, so it is ACTIVE. */
+    /** Issues a key; with no handshake to wait for it is ACTIVE at once. */
     protected IssuedApiKeyResult issueActive(UUID owner, String name, Lifetime lifetime, Permissions permissions) {
-        IssuedApiKeyResult issued = issue(owner, name, lifetime, permissions);
-        confirmChange.handle(new ApiKeyChangeConfirmed(issued.key().apiKeyId(), 1, "data-plane"));
-        return issued;
+        return issue(owner, name, lifetime, permissions);
     }
 
     protected ApiKeyView view(UUID owner, UUID apiKeyId) {

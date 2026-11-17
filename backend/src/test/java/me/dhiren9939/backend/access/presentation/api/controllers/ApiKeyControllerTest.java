@@ -2,10 +2,6 @@ package me.dhiren9939.backend.access.presentation.api.controllers;
 
 import me.dhiren9939.backend.access.application.usecase.service.verify.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
-import me.dhiren9939.backend.access.application.usecase.service.confirm.ConfirmChangeUseCase;
-import me.dhiren9939.backend.access.application.usecase.service.reject.RejectChangeUseCase;
-import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeCommand;
-import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyUseCase;
@@ -19,9 +15,6 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeFailureReason;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeRejected;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -45,7 +38,7 @@ class ApiKeyControllerTest {
     private static final UUID KEY_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final Permissions NO_PERMISSIONS = Permissions.none();
     private static final ApiKeyView VIEW = new ApiKeyView(KEY_ID, USER_ID, "V1_acc", "test-key", NO_PERMISSIONS,
-            Instant.parse("2026-01-15T12:00:00Z"), null, ApiKeyState.PROVISIONING, ChangeKind.CREATE);
+            Instant.parse("2026-01-15T12:00:00Z"), null, ApiKeyState.ACTIVE);
 
     private final List<Object> received = new ArrayList<>();
     private RuntimeException failure;
@@ -68,13 +61,9 @@ class ApiKeyControllerTest {
         };
         DeleteApiKeyUseCase delete = command -> received.add(command);
         DismissApiKeyUseCase dismiss = command -> received.add(command);
-        CancelApiKeyChangeUseCase cancel = command -> received.add(command);
-        ConfirmChangeUseCase confirm = command -> received.add(command);
-        RejectChangeUseCase reject = command -> received.add(command);
 
         mvc = MockMvcBuilders
-                .standaloneSetup(new ApiKeyController(issue, get, update, delete, dismiss, cancel),
-                        new ApiKeyInternalController(confirm, reject))
+                .standaloneSetup(new ApiKeyController(issue, get, update, delete, dismiss))
                 .setControllerAdvice(new ApiKeyExceptionHandler())
                 .build();
     }
@@ -87,7 +76,7 @@ class ApiKeyControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessSecret").value("the-secret"))
                 .andExpect(jsonPath("$.accessId").value("V1_acc"))
-                .andExpect(jsonPath("$.status").value("CREATING"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.revision").doesNotExist());
 
         IssueApiKeyCommand command = (IssueApiKeyCommand) received.getFirst();
@@ -155,12 +144,10 @@ class ApiKeyControllerTest {
         mvc.perform(get("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.apiKeyId").value(KEY_ID.toString()))
-                .andExpect(jsonPath("$.status").value("CREATING"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.userId").doesNotExist())
                 .andExpect(jsonPath("$.revision").doesNotExist())
                 .andExpect(jsonPath("$.lockVersion").doesNotExist())
-                .andExpect(jsonPath("$.pendingChange").doesNotExist())
-                .andExpect(jsonPath("$.failureReason").doesNotExist())
                 .andExpect(jsonPath("$.accessSecretHash").doesNotExist())
                 .andExpect(jsonPath("$.accessSecret").doesNotExist());
     }
@@ -188,47 +175,6 @@ class ApiKeyControllerTest {
     }
 
     @Test
-    void cancelReturns204AndSendsItsCommand() throws Exception {
-        mvc.perform(post("/api/v1/user/{userId}/apikey/{id}/cancel", USER_ID, KEY_ID)).andExpect(status().isNoContent());
-
-        assertThat(received).containsExactly(new CancelApiKeyChangeCommand(USER_ID, KEY_ID));
-    }
-
-    @Test
-    void theDataPlaneAnswersCarryTheRevisionAndRejectDefaultsToRejected() throws Exception {
-        mvc.perform(post("/internal/apikey/{id}/changes/{revision}/confirm", KEY_ID, 3)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"issuer\":\"data-plane\"}"))
-                .andExpect(status().isNoContent());
-        mvc.perform(post("/internal/apikey/{id}/changes/{revision}/reject", KEY_ID, 3)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"issuer\":\"data-plane\"}"))
-                .andExpect(status().isNoContent());
-        mvc.perform(post("/internal/apikey/{id}/changes/{revision}/reject", KEY_ID, 4)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"issuer\":\"data-plane\",\"reason\":\"CONFIRM_TIMEOUT\"}"))
-                .andExpect(status().isNoContent());
-        assertThat(received).containsExactly(
-                new ApiKeyChangeConfirmed(KEY_ID, 3, "data-plane"),
-                new ApiKeyChangeRejected(KEY_ID, 3, "data-plane", ApiKeyChangeFailureReason.REJECTED),
-                new ApiKeyChangeRejected(KEY_ID, 4, "data-plane", ApiKeyChangeFailureReason.CONFIRM_TIMEOUT));
-    }
-
-    @Test
-    void aDataPlaneAnswerWithoutAServiceIdIsRefused() throws Exception {
-        for (String answer : new String[]{"confirm", "reject"}) {
-            mvc.perform(post("/internal/apikey/{id}/changes/{revision}/" + answer, KEY_ID, 3))
-                    .andExpect(status().isBadRequest());
-            mvc.perform(post("/internal/apikey/{id}/changes/{revision}/" + answer, KEY_ID, 3)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"issuer\":\" \"}"))
-                    .andExpect(status().isBadRequest());
-        }
-
-        assertThat(received).isEmpty();
-    }
-
-    @Test
     void notFoundBecomes404() throws Exception {
         failure = new ApiKeyNotFoundException();
 
@@ -252,7 +198,7 @@ class ApiKeyControllerTest {
 
     @Test
     void aRefusedChangeBecomes409() throws Exception {
-        failure = new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_CHANGE_PENDING, "Can't update an API key with pending changes");
+        failure = new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_DELETED, "Can't update a deleted API key");
 
         mvc.perform(patch("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID)
                         .contentType(MediaType.APPLICATION_JSON)

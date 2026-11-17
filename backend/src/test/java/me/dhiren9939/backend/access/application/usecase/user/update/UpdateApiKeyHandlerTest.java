@@ -32,13 +32,13 @@ class UpdateApiKeyHandlerTest {
     }
 
     @Test
-    void nameChangeCreatesAPendingUpdateAndOneEvent() {
+    void nameChangeAppliesAtOnceAndRegistersOneEvent() {
         ApiKey key = apiKeys.existing(active());
 
         ApiKeyView view = update(key, "new-name", null, null);
 
-        assertThat(view.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
-        assertThat(view.apiKeyName()).as("confirmed name stays until the change is confirmed").isEqualTo(NAME);
+        assertThat(view.state()).isEqualTo(ApiKeyState.ACTIVE);
+        assertThat(view.apiKeyName()).isEqualTo("new-name");
         assertThat(apiKeys.saves).isEqualTo(1);
         assertThat(apiKeys.publishedEvents).hasSize(1);
         UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
@@ -65,7 +65,7 @@ class UpdateApiKeyHandlerTest {
         update(key, null, Lifetime.ONE_DAY, null);
 
         assertThat(apiKeys.publishedEvents).hasSize(1);
-        assertThat(key.desiredState().expiresAt()).isEqualTo(NOW.plusSeconds(24 * 3600));
+        assertThat(key.getExpiresAt()).isEqualTo(NOW.plusSeconds(24 * 3600));
     }
 
     @Test
@@ -78,7 +78,7 @@ class UpdateApiKeyHandlerTest {
         assertThat(apiKeys.publishedEvents).hasSize(1);
         UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
         assertThat(event.apiKeyName()).isEqualTo("all-new");
-        assertThat(key.desiredState().expiresAt()).isNull();
+        assertThat(key.getExpiresAt()).isNull();
         assertThat(event.version()).isEqualTo(2);
     }
 
@@ -101,25 +101,6 @@ class UpdateApiKeyHandlerTest {
         update(key, null, null, new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.NONE)));
         update(key, null, Lifetime.ONE_MONTH, null);
 
-        assertThat(apiKeys.saves).isZero();
-        assertThat(apiKeys.publishedEvents).isEmpty();
-    }
-
-    @Test
-    void aProvisioningKeyCannotBeUpdated() {
-        ApiKey key = apiKeys.existing(provisioning());
-
-        assertThatThrownBy(() -> update(key, "x", null, null)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(apiKeys.saves).isZero();
-    }
-
-    @Test
-    void aKeyWithAPendingOrFailedChangeCannotBeUpdatedUntilDismissed() {
-        ApiKey pending = apiKeys.existing(changePending());
-        ApiKey failed = apiKeys.existing(changeFailed());
-
-        assertThatThrownBy(() -> update(pending, "x", null, null)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> update(failed, "x", null, null)).isInstanceOf(ApiKeyUpdateFailure.class);
         assertThat(apiKeys.saves).isZero();
         assertThat(apiKeys.publishedEvents).isEmpty();
     }

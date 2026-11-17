@@ -16,8 +16,9 @@ import java.util.concurrent.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Several owners' threads update the same key at the same moment. Exactly one change may win; the others
- * must fail with {@link ApiKeyUpdateFailure} (HTTP 409), and nothing may be half-written.
+ * Several owners' threads update the same key at the same moment. Changes apply immediately and in
+ * sequence: every writer either lands its change or loses the optimistic-lock race and retries, so
+ * the event versions stay unique and monotonic and the last event describes the key's final state.
  */
 class ApiKeyConcurrencyIntegrationTest extends AccessIntegrationTest {
 
@@ -26,7 +27,7 @@ class ApiKeyConcurrencyIntegrationTest extends AccessIntegrationTest {
     private final UUID owner = UUID.randomUUID();
 
     @RepeatedTest(5)
-    @DisplayName("concurrent updates of one key: exactly one wins, the rest get ApiKeyUpdateFailure")
+    @DisplayName("concurrent updates of one key: versions stay unique and monotonic, the last event wins")
     void concurrentUpdates() throws Exception {
         UUID id = issueActive(owner, "contended", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
 
@@ -48,7 +49,6 @@ class ApiKeyConcurrencyIntegrationTest extends AccessIntegrationTest {
             go.countDown();
 
             int succeeded = 0;
-            int conflicted = 0;
             List<Throwable> unexpected = new ArrayList<>();
             for (Future<ApiKeyView> attempt : attempts) {
                 try {
@@ -56,27 +56,32 @@ class ApiKeyConcurrencyIntegrationTest extends AccessIntegrationTest {
                     succeeded++;
                 } catch (java.util.concurrent.ExecutionException failure) {
                     if (failure.getCause() instanceof ApiKeyUpdateFailure)
-                        conflicted++;
+                        succeeded += 0; // a writer may lose the race and exhaust its retries
                     else
                         unexpected.add(failure.getCause());
                 }
             }
 
             assertThat(unexpected).as("only ApiKeyUpdateFailure is an acceptable loser outcome").isEmpty();
-            assertThat(succeeded).isEqualTo(1);
-            assertThat(conflicted).isEqualTo(THREADS - 1);
+            assertThat(succeeded).as("at least one writer lands its change").isGreaterThanOrEqualTo(1);
         } finally {
             pool.shutdownNow();
         }
 
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
-        assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(2);
-        assertThat(count("access.pending_changes")).isEqualTo(1);
-        assertThat(count("access.outbox where event_type = 'apiKey.projection.update'")).isEqualTo(1);
-        assertThat(outbox()).extracting(OutboxRow::version).containsExactly(1L, 2L);
-        String pendingName = jdbc.queryForObject("select api_key_name from access.pending_changes", String.class);
-        String eventName = jdbc.queryForObject(
-                "select api_key_name from access.outbox where event_type = 'apiKey.projection.update'", String.class);
-        assertThat(eventName).as("the event describes the change that actually won").isEqualTo(pendingName);
+        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.ACTIVE);
+        List<OutboxRow> rows = outbox();
+        assertThat(rows).extracting(OutboxRow::version)
+                .as("event versions are unique and strictly increasing")
+                .doesNotHaveDuplicates()
+                .isSorted()
+                .startsWith(1L);
+        long updates = rows.stream().filter(row -> row.eventType().equals("apiKey.projection.update")).count();
+        assertThat(updates).as("one update event per landed change").isEqualTo(rows.size() - 1);
+        assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class))
+                .as("the revision matches the number of landed changes")
+                .isEqualTo(1 + updates);
+        String eventName = rows.getLast().apiKeyName();
+        assertThat(eventName).as("the last event describes the change that actually won")
+                .isEqualTo(jdbc.queryForObject("select api_key_name from access.api_keys where api_key_id = ?", String.class, id));
     }
 }

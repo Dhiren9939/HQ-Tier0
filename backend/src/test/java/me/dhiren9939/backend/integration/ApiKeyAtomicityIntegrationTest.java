@@ -5,8 +5,6 @@ import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKey
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeFailureReason;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeRejected;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -54,8 +52,6 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(count("access.api_keys")).isZero();
-        assertThat(count("access.pending_changes")).isZero();
-        assertThat(count("access.pending_change_permissions")).isZero();
         assertThat(count("access.api_key_permissions")).isZero();
         assertThat(count("access.outbox")).isZero();
     }
@@ -73,12 +69,11 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
         assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
         assertThat(key.apiKeyName()).isEqualTo("stable");
         assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(1);
-        assertThat(count("access.pending_changes")).isZero();
         assertThat(outbox()).hasSize(events);
     }
 
     @Test
-    @DisplayName("delete: a failing outbox write leaves the key ACTIVE with no pending delete")
+    @DisplayName("delete: a failing outbox write leaves the key ACTIVE")
     void deleteRollsBack() {
         // the delete event copies the key's name, so a key named `boom` cannot be deleted
         UUID id = jdbcIssueActiveNamedBoom();
@@ -88,22 +83,6 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(count("access.pending_changes")).isZero();
-        assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(1);
-        assertThat(outbox()).hasSize(events);
-    }
-
-    @Test
-    @DisplayName("rejecting a creation: a failing outbox write keeps the change pending")
-    void rejectCreationRollsBack() {
-        UUID id = jdbcIssueNamedBoom();
-        int events = outbox().size();
-
-        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", ApiKeyChangeFailureReason.REJECTED)))
-                .isInstanceOf(RuntimeException.class);
-
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.PROVISIONING);
-        assertThat(jdbc.queryForObject("select status from access.pending_changes", String.class)).isEqualTo("PENDING");
         assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(1);
         assertThat(outbox()).hasSize(events);
     }
@@ -118,12 +97,4 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
         }
     }
 
-    private UUID jdbcIssueNamedBoom() {
-        jdbc.execute("alter table access.outbox disable trigger refuse_boom");
-        try {
-            return issue(owner, "boom", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
-        } finally {
-            jdbc.execute("alter table access.outbox enable trigger refuse_boom");
-        }
-    }
 }

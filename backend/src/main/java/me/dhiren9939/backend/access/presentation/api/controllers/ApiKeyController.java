@@ -3,8 +3,6 @@ package me.dhiren9939.backend.access.presentation.api.controllers;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
-import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeCommand;
-import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
@@ -29,7 +27,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** HTTP endpoints for API-key CRUD, cancelling a pending change and dismissing finished or failed keys. */
+/** HTTP endpoints for API-key CRUD and dismissing deleted keys. */
 @RestController
 @RequestMapping("/api/v1/user/{userId}/apikey")
 @RequiredArgsConstructor
@@ -40,7 +38,6 @@ class ApiKeyController {
     private final UpdateApiKeyUseCase updateApiKey;
     private final DeleteApiKeyUseCase deleteApiKey;
     private final DismissApiKeyUseCase dismissApiKey;
-    private final CancelApiKeyChangeUseCase cancelApiKeyChange;
 
     @PostMapping
     public ResponseEntity<CreateResponseDto> create(@PathVariable UUID userId,
@@ -69,12 +66,6 @@ class ApiKeyController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/{apiKeyId}/cancel")
-    public ResponseEntity<Void> cancel(@PathVariable UUID userId, @PathVariable UUID apiKeyId) {
-        cancelApiKeyChange.handle(new CancelApiKeyChangeCommand(userId, apiKeyId));
-        return ResponseEntity.noContent().build();
-    }
-
     @PostMapping("/{apiKeyId}/dismiss")
     public ResponseEntity<Void> dismiss(@PathVariable UUID userId, @PathVariable UUID apiKeyId) {
         dismissApiKey.handle(new DismissApiKeyCommand(userId, apiKeyId));
@@ -99,7 +90,7 @@ class ApiKeyController {
                 .permissions(toResponseMap(key.permissions()))
                 .createdAt(key.createdAt())
                 .expiresAt(key.expiresAt())
-                .status(ApiKeyStatus.of(key.state(), key.changeKind()))
+                .status(ApiKeyStatus.of(key.state()))
                 .build();
     }
 
@@ -111,7 +102,7 @@ class ApiKeyController {
                 .permissions(toResponseMap(key.permissions()))
                 .createdAt(key.createdAt())
                 .expiresAt(key.expiresAt())
-                .status(ApiKeyStatus.of(key.state(), key.changeKind()))
+                .status(ApiKeyStatus.of(key.state()))
                 .build();
     }
 }

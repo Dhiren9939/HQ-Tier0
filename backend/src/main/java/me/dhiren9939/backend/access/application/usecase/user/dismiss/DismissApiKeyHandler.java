@@ -18,10 +18,8 @@ class DismissApiKeyHandler implements DismissApiKeyUseCase {
         transactions.execute(() -> {
             ApiKey key = apiKeys.requireOwned(command.userId(), command.apiKeyId());
 
-            switch (key.dismiss()) {
-                case CLEARED -> apiKeys.save(key);
-                case REMOVED -> apiKeys.delete(key);
-            }
+            key.dismiss();
+            apiKeys.delete(key);
         });
     }
 }

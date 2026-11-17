@@ -5,17 +5,18 @@ import me.dhiren9939.backend.access.application.model.ApiKeyView;
 import me.dhiren9939.backend.common.access.VerificationFailureCode;
 import me.dhiren9939.backend.common.access.VerifyApiKeyQuery;
 import me.dhiren9939.backend.access.application.usecase.service.verify.VerifiedApiKey;
-import me.dhiren9939.backend.access.application.usecase.user.cancel.CancelApiKeyChangeCommand;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.PermissionChanges;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Scope;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeFailureReason;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeRejected;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** The key lifecycle through the use cases, against a real PostgreSQL. */
+/** The key lifecycle through the use cases, against a real PostgreSQL. HQ applies everything at once; the data plane conforms to the events. */
 class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
     private final UUID owner = UUID.randomUUID();
@@ -41,16 +42,16 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     // ------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("issue: PROVISIONING key readable by its owner, one apiKey.projection.create outbox row, secret never stored")
+    @DisplayName("issue: ACTIVE key readable by its owner, one apiKey.projection.create outbox row, secret never stored")
     void issue() throws Exception {
         IssuedApiKeyResult issued = issue(owner, "ci key", Lifetime.ONE_DAY, ingestionWrite());
         ApiKeyView key = issued.key();
 
         assertThat(issued.accessSecret()).isNotBlank();
-        assertThat(key.state()).isEqualTo(ApiKeyState.PROVISIONING);
+        assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
 
         ApiKeyView read = view(owner, key.apiKeyId());
-        assertThat(read.state()).isEqualTo(ApiKeyState.PROVISIONING);
+        assertThat(read.state()).isEqualTo(ApiKeyState.ACTIVE);
         assertThat(read.apiKeyName()).isEqualTo("ci key");
         assertThat(read.permissions()).isEqualTo(ingestionWrite());
         assertThat(read.expiresAt()).isNotNull();
@@ -73,10 +74,6 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(storedHash).isEqualTo(expectedHash).isNotEqualTo(issued.accessSecret());
         assertThat(count("access.api_keys where access_secret_hash = '" + issued.accessSecret() + "'")).isZero();
         assertThat(count("access.outbox where access_secret_hash = '" + issued.accessSecret() + "'")).isZero();
-
-        assertThat(count("access.pending_changes")).isEqualTo(1);
-        assertThat(count("access.pending_change_permissions")).isEqualTo(1);
-        // issuing records the requested attributes on the key itself; it only cannot authenticate yet
         assertThat(count("access.api_key_permissions")).isEqualTo(1);
     }
 
@@ -86,7 +83,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         issue(owner, "bare", Lifetime.NEVER, Permissions.none());
 
         assertThat(outbox().getFirst().permissions()).isEqualTo("{}");
-        assertThat(count("access.pending_change_permissions")).isZero();
+        assertThat(count("access.api_key_permissions")).isZero();
     }
 
     @Test
@@ -107,25 +104,8 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     }
 
     // ------------------------------------------------------------------------------------------
-    // Confirming and verifying
+    // Verifying
     // ------------------------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("confirm(1): key becomes ACTIVE, its permissions are stored, the pending change is gone")
-    void confirmCreation() {
-        IssuedApiKeyResult issued = issue(owner, "k", Lifetime.NEVER,
-                ingestionWrite().with(Scope.TENANT, AccessLevel.READ));
-
-        confirmChange.handle(new ApiKeyChangeConfirmed(issued.key().apiKeyId(), 1, "data-plane"));
-
-        ApiKeyView key = view(owner, issued.key().apiKeyId());
-        assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(key.permissions()).isEqualTo(ingestionWrite().with(Scope.TENANT, AccessLevel.READ));
-        assertThat(count("access.pending_changes")).isZero();
-        assertThat(count("access.pending_change_permissions")).isZero();
-        assertThat(count("access.api_key_permissions")).isEqualTo(2);
-        assertThat(outbox()).as("confirming writes no event").hasSize(1);
-    }
 
     @Test
     @DisplayName("verify: an ACTIVE key authenticates and returns identity and permissions")
@@ -145,11 +125,8 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     @Test
     @DisplayName("verify: unknown ids and wrong secrets are one outcome; the key's state is reported only with the right secret")
     void verifyFailsWithTheRightCode() {
-        IssuedApiKeyResult provisioning = issue(owner, "provisioning", Lifetime.NEVER, ingestionWrite());
         IssuedApiKeyResult active = issueActive(owner, "active", Lifetime.ONE_DAY, ingestionWrite());
 
-        assertVerifyFails(provisioning.key().accessId(), provisioning.accessSecret(), VerificationFailureCode.KEY_NOT_ACTIVE);
-        assertVerifyFails(provisioning.key().accessId(), "not-the-secret", VerificationFailureCode.INVALID_CREDENTIALS);
         assertVerifyFails("V1_doesNotExist", "whatever", VerificationFailureCode.INVALID_CREDENTIALS);
         assertVerifyFails(active.key().accessId(), "not-the-secret", VerificationFailureCode.INVALID_CREDENTIALS);
 
@@ -165,59 +142,37 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     // ------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("update: pending UPDATE + apiKey.projection.update at revision 2; the confirmed state is unchanged until confirm")
+    @DisplayName("update: applies at once and writes apiKey.projection.update at version 2")
     void update() {
         IssuedApiKeyResult issued = issueActive(owner, "old", Lifetime.ONE_DAY, ingestionWrite());
         UUID id = issued.key().apiKeyId();
+        Instant oldExpiry = view(owner, id).expiresAt();
 
-        ApiKeyView pending = updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "renamed", Lifetime.ONE_MONTH,
+        ApiKeyView updated = updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "renamed", Lifetime.ONE_MONTH,
                 new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ))));
 
-        assertThat(pending.state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
-        assertThat(pending.apiKeyName()).as("confirmed name until confirm").isEqualTo("old");
-        assertThat(pending.permissions()).isEqualTo(ingestionWrite());
+        assertThat(updated.state()).isEqualTo(ApiKeyState.ACTIVE);
+        assertThat(updated.apiKeyName()).isEqualTo("renamed");
+        assertThat(updated.permissions()).isEqualTo(ingestionWrite().with(Scope.TENANT, AccessLevel.READ));
 
         List<OutboxRow> rows = outbox();
         assertThat(rows).hasSize(2);
-        OutboxRow updated = rows.get(1);
-        assertThat(updated.eventType()).isEqualTo("apiKey.projection.update");
-        assertThat(updated.version()).isEqualTo(2);
-        assertThat(updated.apiKeyName()).isEqualTo("renamed");
-        assertThat(updated.permissions()).isEqualTo("{\"INGESTION\":\"WRITE\",\"TENANT\":\"READ\"}");
-        assertThat(updated.accessSecretHash()).as("only apiKey.projection.create carries the hash").isNull();
-        assertThat(updated.emittedAt()).isNull();
+        OutboxRow updatedRow = rows.get(1);
+        assertThat(updatedRow.eventType()).isEqualTo("apiKey.projection.update");
+        assertThat(updatedRow.version()).isEqualTo(2);
+        assertThat(updatedRow.apiKeyName()).isEqualTo("renamed");
+        assertThat(updatedRow.permissions()).isEqualTo("{\"INGESTION\":\"WRITE\",\"TENANT\":\"READ\"}");
+        assertThat(updatedRow.accessSecretHash()).as("only apiKey.projection.create carries the hash").isNull();
+        assertThat(updatedRow.emittedAt()).isNull();
 
-        assertThat(count("access.pending_changes")).isEqualTo(1);
-        assertThat(count("access.pending_change_permissions")).isEqualTo(2);
-        assertThat(count("access.api_key_permissions")).isEqualTo(1);
-
-        // the old permissions still authenticate until the data plane confirms
-        VerifiedApiKey stillOld = verifyApiKey.handle(new VerifyApiKeyQuery(issued.key().accessId(), issued.accessSecret()));
-        assertThat(stillOld.permissions()).isEqualTo(ingestionWrite());
-        assertThat(stillOld.apiKeyName()).isEqualTo("old");
-    }
-
-    @Test
-    @DisplayName("confirm(2) applies name, permissions and expiry, and clears every pending row")
-    void confirmUpdate() {
-        IssuedApiKeyResult issued = issueActive(owner, "old", Lifetime.ONE_DAY, ingestionWrite());
-        UUID id = issued.key().apiKeyId();
-        Instant oldExpiry = view(owner, id).expiresAt();
-        updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "renamed", Lifetime.ONE_MONTH,
-                new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ_WRITE, Scope.INGESTION, AccessLevel.NONE))));
-
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2, "data-plane"));
-
-        ApiKeyView key = view(owner, id);
-        assertThat(key.state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(key.apiKeyName()).isEqualTo("renamed");
-        assertThat(key.permissions()).isEqualTo(Permissions.none().with(Scope.TENANT, AccessLevel.READ_WRITE));
-        assertThat(key.expiresAt()).isAfter(oldExpiry.plus(Duration.ofDays(20)));
-        assertThat(count("access.pending_changes")).isZero();
-        assertThat(count("access.pending_change_permissions")).isZero();
-        assertThat(count("access.api_key_permissions")).as("INGESTION=NONE leaves no row").isEqualTo(1);
         assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("select confirmed_revision from access.api_keys", Long.class)).isEqualTo(2);
+        assertThat(count("access.api_key_permissions")).isEqualTo(2);
+
+        // verification sees the new state at once
+        VerifiedApiKey verified = verifyApiKey.handle(new VerifyApiKeyQuery(issued.key().accessId(), issued.accessSecret()));
+        assertThat(verified.apiKeyName()).isEqualTo("renamed");
+        assertThat(verified.permissions()).isEqualTo(ingestionWrite().with(Scope.TENANT, AccessLevel.READ));
+        assertThat(verified.expiresAt()).isAfter(oldExpiry.plus(Duration.ofDays(20)));
     }
 
     @Test
@@ -232,76 +187,18 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
         assertThat(result.state()).isEqualTo(ApiKeyState.ACTIVE);
         assertThat(outbox()).hasSize(before);
-        assertThat(count("access.pending_changes")).isZero();
         assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("update or delete while a change is pending is refused; stale revisions cannot be confirmed")
-    void pendingChangeBlocksEverything() {
+    @DisplayName("a deleted key cannot be updated")
+    void deletedKeyCannotChange() {
         UUID id = issueActive(owner, "k", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
-        updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "first", null, null));
-        int events = outbox().size();
-
-        assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "second", null, null)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(owner, id)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 1, "data-plane")))
-                .as("revision 1 is no longer the pending one").isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> confirmChange.handle(new ApiKeyChangeConfirmed(id, 3, "data-plane")))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", ApiKeyChangeFailureReason.REJECTED)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-
-        assertThat(outbox()).hasSize(events);
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
-        assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(2);
-    }
-
-    @Test
-    @DisplayName("a provisioning key cannot be updated or deleted")
-    void provisioningKeyCannotChange() {
-        UUID id = issue(owner, "k", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
+        deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
 
         assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "x", null, null)))
                 .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(owner, id)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(outbox()).hasSize(1);
-    }
-
-    @Test
-    @DisplayName("reject -> CHANGE_FAILED with its reason stored and an update restating the confirmed state; dismiss -> ACTIVE with no event and no leftovers")
-    void rejectedUpdateThenDismiss() {
-        UUID id = issueActive(owner, "keep", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
-        updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "lost", null, null));
-        int events = outbox().size();
-
-        rejectChange.handle(new ApiKeyChangeRejected(id, 2, "data-plane", ApiKeyChangeFailureReason.CONFIRM_TIMEOUT));
-
-        List<OutboxRow> afterReject = outbox();
-        assertThat(afterReject).hasSize(events + 1);
-        OutboxRow compensation = afterReject.getLast();
-        assertThat(compensation.eventType()).isEqualTo("apiKey.projection.update");
-        assertThat(compensation.version()).isEqualTo(3);
-        assertThat(compensation.apiKeyName()).as("restates the confirmed name").isEqualTo("keep");
-        ApiKeyView failed = view(owner, id);
-        assertThat(failed.state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
-        assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
-                .isEqualTo("CONFIRM_TIMEOUT");
-        assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "again", null, null)))
-                .as("a failed change must be dismissed first").isInstanceOf(ApiKeyUpdateFailure.class);
-
-        dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
-
-        ApiKeyView active = view(owner, id);
-        assertThat(active.state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(active.apiKeyName()).isEqualTo("keep");
-        assertThat(outbox()).as("dismissing emits nothing").hasSize(events + 1);
-        assertThat(count("access.pending_changes")).isZero();
-        assertThat(count("access.pending_change_permissions")).isZero();
-        assertThat(count("access.api_key_permissions")).isEqualTo(1);
+        assertThat(outbox()).hasSize(2);
     }
 
     // ------------------------------------------------------------------------------------------
@@ -309,7 +206,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     // ------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("delete -> confirm leaves a DELETED tombstone; dismiss removes everything with no new event")
+    @DisplayName("delete leaves a DELETED tombstone at once; dismiss removes everything with no new event")
     void deleteTombstone() {
         IssuedApiKeyResult issued = issueActive(owner, "doomed", Lifetime.NEVER, ingestionWrite());
         UUID id = issued.key().apiKeyId();
@@ -317,18 +214,12 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
 
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
 
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_PENDING);
+        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.DELETED);
         List<OutboxRow> rows = outbox();
         assertThat(rows).hasSize(2);
         assertThat(rows.get(1).eventType()).isEqualTo("apiKey.projection.delete");
         assertThat(rows.get(1).version()).isEqualTo(2);
         assertThat(rows.get(1).permissions()).isEqualTo("{\"INGESTION\":\"WRITE\"}");
-        assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(accessId, issued.accessSecret())))
-                .as("a pending delete still authenticates until confirmed").isNotNull();
-
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2, "data-plane"));
-
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.DELETED);
         assertThat(jdbc.queryForObject("select deleted_at is not null from access.api_keys", Boolean.class)).isTrue();
         assertVerifyFails(accessId, issued.accessSecret(), VerificationFailureCode.KEY_DELETED);
         assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "x", null, null)))
@@ -343,90 +234,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(outbox()).as("dismissing a tombstone emits nothing").hasSize(2);
         assertThat(count("access.api_keys")).isZero();
         assertThat(count("access.api_key_permissions")).isZero();
-        assertThat(count("access.pending_changes")).isZero();
-        assertThat(count("access.pending_change_permissions")).isZero();
         assertThatThrownBy(() -> view(owner, id)).isInstanceOf(ApiKeyNotFoundException.class);
-    }
-
-    @Test
-    @DisplayName("a rejected delete -> CHANGE_FAILED; dismiss brings the key back ACTIVE")
-    void rejectedDelete() {
-        UUID id = issueActive(owner, "survivor", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
-        deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
-
-        rejectChange.handle(new ApiKeyChangeRejected(id, 2, "data-plane", ApiKeyChangeFailureReason.REJECTED));
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
-
-        List<OutboxRow> afterReject = outbox();
-        assertThat(afterReject).extracting(OutboxRow::eventType)
-                .containsExactly("apiKey.projection.create", "apiKey.projection.delete", "apiKey.projection.create");
-        assertThat(afterReject.getLast().version()).isEqualTo(3);
-        assertThat(afterReject.getLast().accessSecretHash()).as("the restoring create carries the hash").isNotNull();
-
-        dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(outbox()).as("dismissing emits nothing").hasSize(3);
-        assertThat(count("access.pending_changes")).isZero();
-    }
-
-    @Test
-    @DisplayName("the owner cancels a pending update: CANCELLED_BY_USER, an update restating the confirmed state goes out at once, dismiss emits nothing")
-    void cancelledUpdate() {
-        UUID id = issueActive(owner, "keep", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
-        updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "changed-mind", null, null));
-        int events = outbox().size();
-
-        cancelApiKeyChange.handle(new CancelApiKeyChangeCommand(owner, id));
-
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.CHANGE_FAILED);
-        assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
-                .isEqualTo("CANCELLED_BY_USER");
-        List<OutboxRow> rows = outbox();
-        assertThat(rows).hasSize(events + 1);
-        assertThat(rows.getLast().eventType()).isEqualTo("apiKey.projection.update");
-        assertThat(rows.getLast().version()).isEqualTo(3);
-        assertThat(rows.getLast().apiKeyName()).isEqualTo("keep");
-
-        dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
-
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(outbox()).hasSize(events + 1);
-        assertThatThrownBy(() -> cancelApiKeyChange.handle(new CancelApiKeyChangeCommand(owner, id)))
-                .as("nothing left to cancel").isInstanceOf(ApiKeyUpdateFailure.class);
-    }
-
-    // ------------------------------------------------------------------------------------------
-    // Failed creation
-    // ------------------------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("a rejected creation writes apiKey.projection.delete at revision 2 at once and is PROVISIONING_FAILED; dismiss removes the key and writes nothing")
-    void failedCreation() {
-        UUID id = issue(owner, "never", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
-
-        rejectChange.handle(new ApiKeyChangeRejected(id, 1, "data-plane", ApiKeyChangeFailureReason.OUTBOX_PUBLISH_FAILURE));
-
-        ApiKeyView failed = view(owner, id);
-        assertThat(failed.state()).isEqualTo(ApiKeyState.PROVISIONING_FAILED);
-        assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
-                .isEqualTo("OUTBOX_PUBLISH_FAILURE");
-        assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "x", null, null)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-
-        assertThat(outbox()).extracting(OutboxRow::eventType)
-                .containsExactly("apiKey.projection.create", "apiKey.projection.delete");
-
-        dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
-
-        List<OutboxRow> rows = outbox();
-        assertThat(rows).extracting(OutboxRow::eventType).containsExactly("apiKey.projection.create", "apiKey.projection.delete");
-        assertThat(rows.get(1).version()).isEqualTo(2);
-        assertThat(rows.get(1).apiKeyId()).isEqualTo(id);
-        assertThat(rows.get(1).permissions()).isEqualTo("{\"INGESTION\":\"WRITE\"}");
-        assertThat(count("access.api_keys")).isZero();
-        assertThat(count("access.pending_changes")).isZero();
-        assertThat(count("access.pending_change_permissions")).isZero();
-        assertThat(count("access.api_key_permissions")).isZero();
     }
 
     @Test

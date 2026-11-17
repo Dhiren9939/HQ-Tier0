@@ -2,7 +2,6 @@ package me.dhiren9939.backend.access.application.usecase.user.dismiss;
 
 import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,29 +29,6 @@ class DismissApiKeyHandlerTest {
     }
 
     @Test
-    void dismissingAFailedChangeClearsItAndEmitsNothing() {
-        ApiKey key = apiKeys.existing(changeFailed());
-
-        dismiss(USER_ID, key);
-
-        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
-        assertThat(apiKeys.contains(key.getApiKeyId())).isTrue();
-        assertThat(apiKeys.saves).isEqualTo(1);
-        assertThat(apiKeys.publishedEvents).isEmpty();
-    }
-
-    @Test
-    void dismissingAFailedCreationRemovesTheKeyAndEmitsNothing() {
-        ApiKey key = apiKeys.existing(provisioningFailed());
-
-        dismiss(USER_ID, key);
-
-        assertThat(apiKeys.contains(key.getApiKeyId())).isFalse();
-        assertThat(apiKeys.deletes).isEqualTo(1);
-        assertThat(apiKeys.publishedEvents).as("the delete went out when the creation was rejected").isEmpty();
-    }
-
-    @Test
     void dismissingTheDeletedTombstoneRemovesTheKeyWithoutAnEvent() {
         ApiKey key = apiKeys.existing(deleted());
 
@@ -60,18 +36,14 @@ class DismissApiKeyHandlerTest {
 
         assertThat(apiKeys.contains(key.getApiKeyId())).isFalse();
         assertThat(apiKeys.deletes).isEqualTo(1);
-        assertThat(apiKeys.publishedEvents).isEmpty();
+        assertThat(apiKeys.publishedEvents).as("the delete went out when the key was deleted").isEmpty();
     }
 
     @Test
     void keysWithNothingToDismissAreRefused() {
         ApiKey active = apiKeys.existing(active());
-        ApiKey provisioning = apiKeys.existing(provisioning());
-        ApiKey pending = apiKeys.existing(changePending());
 
         assertThatThrownBy(() -> dismiss(USER_ID, active)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> dismiss(USER_ID, provisioning)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> dismiss(USER_ID, pending)).isInstanceOf(ApiKeyUpdateFailure.class);
         assertThat(apiKeys.saves).isZero();
         assertThat(apiKeys.deletes).isZero();
         assertThat(apiKeys.publishedEvents).isEmpty();
@@ -89,10 +61,10 @@ class DismissApiKeyHandlerTest {
 
     @Test
     void exhaustedRetriesBecomeAnUpdateFailure() {
-        ApiKey key = apiKeys.existing(changeFailed());
+        ApiKey key = apiKeys.existing(deleted());
         handler = new DismissApiKeyHandler(apiKeys, transactions(alwaysConflicts()));
 
         assertThatThrownBy(() -> handler.handle(new DismissApiKeyCommand(USER_ID, key.getApiKeyId()))).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(apiKeys.saves).isZero();
+        assertThat(apiKeys.deletes).isZero();
     }
 }

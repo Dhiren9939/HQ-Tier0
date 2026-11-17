@@ -26,7 +26,7 @@ class UpdateApiKeyHandler implements UpdateApiKeyUseCase {
         ApiKey key = apiKeys.requireOwned(command.userId(), command.apiKeyId());
 
         ApiKeyChanges changes = new ApiKeyChanges(command.name(), command.lifetime(), command.permissions());
-        if (key.requestUpdate(changes, clock.instant()))
+        if (key.update(changes, clock.instant()))
             apiKeys.save(key);
 
         return ApiKeyView.of(key, clock.instant());

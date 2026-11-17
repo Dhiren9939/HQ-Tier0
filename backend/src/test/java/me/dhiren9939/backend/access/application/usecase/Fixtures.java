@@ -4,7 +4,6 @@ import me.dhiren9939.backend.access.application.transaction.OptimisticLockRetry;
 import me.dhiren9939.backend.access.application.transaction.RetriedTransaction;
 
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.FailureReason;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 
@@ -34,38 +33,17 @@ public final class Fixtures {
     private Fixtures() {
     }
 
-    /** Creation requested, not yet confirmed. */
-    public static ApiKey provisioning() {
-        return ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, NOW, ONE_MONTH_FROM_NOW);
-    }
-
+    /** An issued key whose creation event is already collected. */
     public static ApiKey active() {
-        ApiKey key = provisioning();
-        key.confirm(1, NOW);
-        return key;
-    }
-
-    public static ApiKey provisioningFailed() {
-        ApiKey key = provisioning();
-        key.reject(1, FailureReason.REJECTED, NOW);
-        return key;
-    }
-
-    public static ApiKey changePending() {
-        ApiKey key = active();
-        key.requestDeletion(NOW);
-        return key;
-    }
-
-    public static ApiKey changeFailed() {
-        ApiKey key = changePending();
-        key.reject(2, FailureReason.REJECTED, NOW);
+        ApiKey key = ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, NOW, ONE_MONTH_FROM_NOW);
+        key.pullDomainEvents();
         return key;
     }
 
     public static ApiKey deleted() {
-        ApiKey key = changePending();
-        key.confirm(2, NOW);
+        ApiKey key = active();
+        key.delete(NOW);
+        key.pullDomainEvents();
         return key;
     }
 

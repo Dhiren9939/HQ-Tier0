@@ -43,76 +43,43 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("full lifecycle over HTTP: create, read, confirm, patch, conflict, reject, dismiss, delete, tombstone")
+    @DisplayName("full lifecycle over HTTP: create, read, patch, delete, tombstone, dismiss")
     void lifecycle() throws Exception {
         String created = json(post(keys()), """
                 {"name":"deploy","expiry":"ONE_DAY","permissions":{"INGESTION":"WRITE"}}""")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessSecret").isNotEmpty())
                 .andExpect(jsonPath("$.accessId").value(org.hamcrest.Matchers.startsWith("V1_")))
-                .andExpect(jsonPath("$.status").value("CREATING"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.permissions.INGESTION").value("WRITE"))
                 .andExpect(jsonPath("$.permissions.TENANT").value("NONE"))
                 .andExpect(jsonPath("$.permissions.CHANNEL").value("NONE"))
                 .andReturn().getResponse().getContentAsString();
         UUID id = UUID.fromString(JsonPath.read(created, "$.apiKeyId"));
         String key = keys() + "/" + id;
-        String internal = "/internal/apikey/" + id + "/changes/";
 
         send(get(key)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessSecret").doesNotExist())
-                .andExpect(jsonPath("$.status").value("CREATING"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.apiKeyName").value("deploy"));
-
-        json(post(internal + "1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
-        send(get(key)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("ACTIVE"));
 
         json(patch(key), """
                 {"name":"renamed","permissions":{"TENANT":"READ"}}""")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("UPDATING"))
-                .andExpect(jsonPath("$.apiKeyName").value("deploy"));
-
-        json(patch(key), "{\"name\":\"again\"}").andExpect(status().isConflict());
-        json(post(internal + "1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isConflict());
-        send(delete(key)).andExpect(status().isConflict());
-
-        json(post(internal + "2/reject"), "{\"issuer\":\"data-plane\",\"reason\":\"CONFIRM_TIMEOUT\"}").andExpect(status().isNoContent());
-        send(get(key)).andExpect(jsonPath("$.status").value("UPDATE_FAILED"))
-                .andExpect(jsonPath("$.failureReason").doesNotExist());
-        assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
-                .isEqualTo("CONFIRM_TIMEOUT");
-
-        send(post(key + "/dismiss")).andExpect(status().isNoContent());
-        send(get(key)).andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.apiKeyName").value("deploy"));
-
-        json(patch(key), "{\"name\":\"renamed\",\"expiry\":\"ONE_MONTH\"}").andExpect(status().isOk());
-        json(post(internal + "4/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
-        send(get(key)).andExpect(jsonPath("$.apiKeyName").value("renamed"))
-                .andExpect(jsonPath("$.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.apiKeyName").value("renamed"));
 
         send(delete(key)).andExpect(status().isNoContent());
-        send(get(key)).andExpect(jsonPath("$.status").value("DELETING"));
-        json(post(internal + "5/reject"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent()); // no reason given -> REJECTED
-        send(get(key)).andExpect(jsonPath("$.status").value("DELETE_FAILED"));
-        assertThat(jdbc.queryForObject("select failure_reason from access.pending_changes", String.class))
-                .isEqualTo("REJECTED");
-        send(post(key + "/dismiss")).andExpect(status().isNoContent());
-
-        send(delete(key)).andExpect(status().isNoContent());
-        json(post(internal + "7/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
         send(get(key)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DELETED"));
         json(patch(key), "{\"name\":\"zombie\"}").andExpect(status().isConflict());
+        send(delete(key)).andExpect(status().isConflict());
 
         int events = outbox().size();
         send(post(key + "/dismiss")).andExpect(status().isNoContent());
         send(get(key)).andExpect(status().isNotFound());
         assertThat(outbox()).hasSize(events);
         assertThat(outbox()).extracting(OutboxRow::eventType).containsExactly(
-                "apiKey.projection.create", "apiKey.projection.update", "apiKey.projection.update", "apiKey.projection.update",
-                "apiKey.projection.delete", "apiKey.projection.create", "apiKey.projection.delete");
+                "apiKey.projection.create", "apiKey.projection.update", "apiKey.projection.delete");
     }
 
     @Test
@@ -138,10 +105,14 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         send(get(keys() + "/" + UUID.randomUUID()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("API_KEY_NOT_FOUND"));
+
+        // the internal confirm/reject endpoints are gone
+        send(post("/internal/apikey/" + UUID.randomUUID() + "/changes/1/confirm"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    @DisplayName("404: unknown key, someone else's key, unknown key on the internal endpoints")
+    @DisplayName("404: unknown key, someone else's key")
     void notFound() throws Exception {
         UUID id = create("{\"name\":\"k\",\"expiry\":\"NEVER\"}");
         UUID stranger = UUID.randomUUID();
@@ -150,20 +121,21 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         send(get("/api/v1/user/" + stranger + "/apikey/" + id)).andExpect(status().isNotFound());
         json(patch("/api/v1/user/" + stranger + "/apikey/" + id), "{\"name\":\"x\"}").andExpect(status().isNotFound());
         send(delete("/api/v1/user/" + stranger + "/apikey/" + id)).andExpect(status().isNotFound());
-        json(post("/internal/apikey/" + UUID.randomUUID() + "/changes/1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNotFound());
-        json(post("/internal/apikey/" + UUID.randomUUID() + "/changes/1/reject"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNotFound());
     }
 
     @Test
-    @DisplayName("409: a key that is still provisioning cannot be changed or deleted over HTTP")
-    void conflictWhileProvisioning() throws Exception {
+    @DisplayName("409: a deleted key refuses every change and an active key refuses to be dismissed over HTTP")
+    void conflicts() throws Exception {
         UUID id = create("{\"name\":\"k\",\"expiry\":\"NEVER\"}");
         String key = keys() + "/" + id;
 
-        // a key whose creation is still pending refuses changes with a conflict, like any other pending change
+        // an active key has nothing to dismiss
+        send(post(key + "/dismiss")).andExpect(status().isConflict());
+
+        // once deleted, the tombstone refuses every change
+        send(delete(key)).andExpect(status().isNoContent());
         json(patch(key), "{\"name\":\"x\"}").andExpect(status().isConflict());
         send(delete(key)).andExpect(status().isConflict());
-        send(post(key + "/dismiss")).andExpect(status().isConflict());
     }
 
     @Test
@@ -179,7 +151,6 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         json(post(keys()), "{not json").andExpect(status().isBadRequest());
 
         UUID id = create("{\"name\":\"k\",\"expiry\":\"NEVER\"}");
-        json(post("/internal/apikey/" + id + "/changes/1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
         json(patch(keys() + "/" + id), "{\"permissions\":{\"INGESTION\":\"READ_WRITE\"}}")
                 .andExpect(status().isBadRequest());
         json(patch(keys() + "/" + id), "{\"name\":\"\"}").andExpect(status().isBadRequest());
@@ -208,9 +179,9 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
         UUID id = UUID.fromString(JsonPath.read(created, "$.apiKeyId"));
 
         send(get("/test-probe/verify").param("accessId", accessId).param("secret", secret))
-                .andExpect(status().isUnauthorized()); // still provisioning
-        json(post("/internal/apikey/" + id + "/changes/1/confirm"), "{\"issuer\":\"data-plane\"}").andExpect(status().isNoContent());
-
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.apiKeyId").value(id.toString()))
+                .andExpect(jsonPath("$.userId").value(owner.toString()));
         send(get("/test-probe/verify").param("accessId", accessId).param("secret", secret))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.apiKeyId").value(id.toString()))

@@ -1,6 +1,5 @@
 package me.dhiren9939.backend.integration;
 
-import me.dhiren9939.backend.access.application.usecase.service.confirm.ConfirmChangeUseCase;
 import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
@@ -13,7 +12,6 @@ import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKey
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyUseCase;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
 import me.dhiren9939.backend.common.access.VerifyApiKeyQuery;
-import me.dhiren9939.backend.common.access.events.inbound.ApiKeyChangeConfirmed;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -35,8 +33,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves the hand-written {@code V1__create_access_schema.sql} and the JPA mappings agree. A brand-new
- * database inside the throwaway container gets only that SQL file; the application then boots with
+ * Proves the hand-written access migrations and the JPA mappings agree. A brand-new
+ * database inside the throwaway container gets only those SQL files; the application then boots with
  * {@code ddl-auto=validate}, so Hibernate refuses to start on any mismatch, and a full key lifecycle runs
  * against the hand-written tables.
  */
@@ -59,6 +57,7 @@ class SqlMigrationValidateIntegrationTest {
         String url = "jdbc:postgresql://" + postgres.getHost() + ":" + postgres.getMappedPort(5432) + "/" + DATABASE;
         try (Connection connection = DriverManager.getConnection(url, postgres.getUsername(), postgres.getPassword())) {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V1__create_access_schema.sql"));
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V2__drop_pending_changes.sql"));
         }
 
         registry.add("spring.datasource.url", () -> url);
@@ -69,7 +68,6 @@ class SqlMigrationValidateIntegrationTest {
     @Value("${spring.jpa.hibernate.ddl-auto}") String ddlAuto;
     @Autowired JdbcTemplate jdbc;
     @Autowired IssueApiKeyUseCase issueApiKey;
-    @Autowired ConfirmChangeUseCase confirmChange;
     @Autowired VerifyApiKeyUseCase verifyApiKey;
     @Autowired UpdateApiKeyUseCase updateApiKey;
     @Autowired DeleteApiKeyUseCase deleteApiKey;
@@ -121,23 +119,18 @@ class SqlMigrationValidateIntegrationTest {
 
         IssuedApiKeyResult issued = issueApiKey.handle(new IssueApiKeyCommand(owner, "sql", Lifetime.ONE_DAY, permissions));
         UUID id = issued.key().apiKeyId();
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 1, "data-plane"));
         assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(issued.key().accessId(), issued.accessSecret())).permissions())
                 .isEqualTo(permissions);
 
         updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "sql2", Lifetime.ONE_MONTH,
                 new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ))));
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 2, "data-plane"));
 
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
-        confirmChange.handle(new ApiKeyChangeConfirmed(id, 3, "data-plane"));
         dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
 
         assertThat(jdbc.queryForList("select event_type from access.outbox order by change_version", String.class))
                 .containsExactly("apiKey.projection.create", "apiKey.projection.update", "apiKey.projection.delete");
         assertThat(jdbc.queryForObject("select count(*) from access.api_keys", Long.class)).isZero();
-        assertThat(jdbc.queryForObject("select count(*) from access.pending_changes", Long.class)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from access.api_key_permissions", Long.class)).isZero();
-        assertThat(jdbc.queryForObject("select count(*) from access.pending_change_permissions", Long.class)).isZero();
     }
 }

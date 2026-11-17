@@ -3,7 +3,6 @@ package me.dhiren9939.backend.access.application.usecase.user.delete;
 import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ChangeKind;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.common.access.events.outbound.DeleteApiKeyProjectionCommand;
@@ -32,14 +31,13 @@ class DeleteApiKeyHandlerTest {
     }
 
     @Test
-    void requestsDeletionAndRegistersOneDeletedEvent() {
+    void deletesAtOnceAndRegistersOneDeletedEvent() {
         ApiKey key = apiKeys.existing(active());
 
         delete(USER_ID, key);
 
-        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.CHANGE_PENDING);
-        assertThat(key.getPendingChange().getKind()).isEqualTo(ChangeKind.DELETE);
-        assertThat(apiKeys.contains(key.getApiKeyId())).as("not removed until confirmed and dismissed").isTrue();
+        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.DELETED);
+        assertThat(apiKeys.contains(key.getApiKeyId())).as("stays as a tombstone until dismissed").isTrue();
         assertThat(apiKeys.publishedEvents).hasSize(1);
         DeleteApiKeyProjectionCommand event = (DeleteApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
         assertThat(event.version()).isEqualTo(2);
@@ -48,22 +46,10 @@ class DeleteApiKeyHandlerTest {
     }
 
     @Test
-    void aProvisioningKeyCannotBeDeleted() {
-        ApiKey key = apiKeys.existing(provisioning());
+    void anAlreadyDeletedKeyCannotBeDeletedAgain() {
+        ApiKey key = apiKeys.existing(deleted());
 
         assertThatThrownBy(() -> delete(USER_ID, key)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(apiKeys.publishedEvents).isEmpty();
-    }
-
-    @Test
-    void pendingFailedAndDeletedKeysCannotBeDeleted() {
-        ApiKey pending = apiKeys.existing(changePending());
-        ApiKey failed = apiKeys.existing(changeFailed());
-        ApiKey tombstone = apiKeys.existing(deleted());
-
-        assertThatThrownBy(() -> delete(USER_ID, pending)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> delete(USER_ID, failed)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> delete(USER_ID, tombstone)).isInstanceOf(ApiKeyUpdateFailure.class);
         assertThat(apiKeys.saves).isZero();
         assertThat(apiKeys.publishedEvents).isEmpty();
     }

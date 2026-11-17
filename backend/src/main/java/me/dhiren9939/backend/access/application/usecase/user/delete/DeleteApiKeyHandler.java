@@ -19,7 +19,7 @@ class DeleteApiKeyHandler implements DeleteApiKeyUseCase {
     public void handle(DeleteApiKeyCommand command) {
         transactions.execute(() -> {
             ApiKey key = apiKeys.requireOwned(command.userId(), command.apiKeyId());
-            key.requestDeletion(clock.instant());
+            key.delete(clock.instant());
             apiKeys.save(key);
         });
     }

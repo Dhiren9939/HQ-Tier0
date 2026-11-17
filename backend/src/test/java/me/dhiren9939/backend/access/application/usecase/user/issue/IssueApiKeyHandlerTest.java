@@ -27,12 +27,12 @@ class IssueApiKeyHandlerTest {
     }
 
     @Test
-    void storesAProvisioningKeyAndReturnsTheSecretOnce() {
+    void storesAnActiveKeyAndReturnsTheSecretOnce() {
         IssuedApiKeyResult result = issue(Lifetime.ONE_MONTH);
 
         assertThat(result.accessSecret()).isEqualTo("secret_raw");
         assertThat(result.key().accessId()).isEqualTo("V1_acc");
-        assertThat(result.key().state()).isEqualTo(ApiKeyState.PROVISIONING);
+        assertThat(result.key().state()).isEqualTo(ApiKeyState.ACTIVE);
         assertThat(result.key().createdAt()).isEqualTo(NOW);
         assertThat(result.key().expiresAt()).isEqualTo(ONE_MONTH_FROM_NOW);
 
@@ -42,7 +42,7 @@ class IssueApiKeyHandlerTest {
     }
 
     @Test
-    void registersExactlyOneCreatedEventAtRevisionOneCarryingTheHash() {
+    void registersExactlyOneCreatedEventAtVersionOneCarryingTheHash() {
         issue(Lifetime.ONE_MONTH);
 
         assertThat(apiKeys.publishedEvents).hasSize(1);

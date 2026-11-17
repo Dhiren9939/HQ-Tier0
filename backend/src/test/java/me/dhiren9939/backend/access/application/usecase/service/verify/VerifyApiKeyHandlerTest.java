@@ -72,21 +72,14 @@ class VerifyApiKeyHandlerTest {
     }
 
     @Test
-    void aKeyWithAPendingUpdateStillAuthenticatesWithItsConfirmedPermissions() {
+    void anUpdateIsVisibleToVerificationAtOnce() {
         ApiKey key = apiKeys.existing(active());
-        key.requestUpdate(new me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyChanges(null, null,
+        key.update(new me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyChanges(null, null,
                 new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.WRITE))), NOW);
 
         VerifiedApiKey verified = verify("V1_acc", "secret_raw");
 
-        assertThat(verified.permissions()).isEqualTo(NO_PERMISSIONS);
-    }
-
-    @Test
-    void aKeyWhoseDeletionIsStillPendingAuthenticates() {
-        apiKeys.existing(changePending());
-
-        assertThat(verify("V1_acc", "secret_raw")).isNotNull();
+        assertThat(verified.permissions().levelOf(Scope.INGESTION)).isEqualTo(AccessLevel.WRITE);
     }
 
     @Test
@@ -115,21 +108,9 @@ class VerifyApiKeyHandlerTest {
     }
 
     @Test
-    void aKeyWhoseCreationIsPendingOrFailedIsReportedAsNotActive() {
-        for (ApiKey key : List.of(provisioning(), provisioningFailed())) {
-            InMemoryApiKeys fresh = new InMemoryApiKeys();
-            fresh.existing(key);
-            VerifyApiKeyHandler h = new VerifyApiKeyHandler(fresh, List.of(V1), CLOCK);
-
-            assertFailure(() -> h.handle(new VerifyApiKeyQuery("V1_acc", "secret_raw")),
-                    VerificationFailureCode.KEY_NOT_ACTIVE, "The API key is not active.");
-        }
-    }
-
-    @Test
     @DisplayName("the state of a key is only revealed to someone with the right secret")
     void withAWrongSecretEveryKeyLooksTheSame() {
-        for (ApiKey key : List.of(active(), deleted(), provisioning(), provisioningFailed())) {
+        for (ApiKey key : List.of(active(), deleted())) {
             InMemoryApiKeys fresh = new InMemoryApiKeys();
             fresh.existing(key);
             VerifyApiKeyHandler expired = new VerifyApiKeyHandler(fresh, List.of(V1), Clock.fixed(NOW.plus(Duration.ofDays(40)), ZoneOffset.UTC));
