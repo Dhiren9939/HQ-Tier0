@@ -32,4 +32,6 @@ public sealed interface ApiKeyEvent permits ApiKeyCreated, ApiKeyUpdated, ApiKey
     Instant createdAt();
 
     Instant expiresAt();
+
+    String eventType();
 }

@@ -13,4 +13,11 @@ public record ApiKeyCreated(String apiKeyName, UUID apiKeyId, long version, Inst
                             String accessSecretHash,
                             Permissions permissions,
                             Instant createdAt, Instant expiresAt) implements ApiKeyEvent {
+
+    public static final String EVENT_TYPE = "apiKey.created";
+
+    public String eventType(){
+        return EVENT_TYPE;
+    }
+
 }

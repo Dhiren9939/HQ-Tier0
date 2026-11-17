@@ -12,4 +12,11 @@ public record ApiKeyUpdated(String apiKeyName, UUID apiKeyId, long version, Inst
                             UUID userId, String accessId,
                             Permissions permissions,
                             Instant createdAt, Instant expiresAt) implements ApiKeyEvent {
+
+    public static final String EVENT_TYPE = "apiKey.updated";
+
+    public String eventType(){
+        return EVENT_TYPE;
+    }
+
 }
