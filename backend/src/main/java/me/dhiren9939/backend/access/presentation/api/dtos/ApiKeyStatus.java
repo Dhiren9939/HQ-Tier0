@@ -8,14 +8,12 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
  */
 public enum ApiKeyStatus {
     ACTIVE,
-    EXPIRED,
-    DELETED;
+    EXPIRED;
 
     public static ApiKeyStatus of(ApiKeyState state) {
         return switch (state) {
             case ACTIVE -> ACTIVE;
             case EXPIRED -> EXPIRED;
-            case DELETED -> DELETED;
         };
     }
 }

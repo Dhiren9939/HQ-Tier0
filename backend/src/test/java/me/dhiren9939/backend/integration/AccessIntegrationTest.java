@@ -3,7 +3,6 @@ package me.dhiren9939.backend.integration;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
 import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.get.GetApiKeyQuery;
 import me.dhiren9939.backend.access.application.usecase.user.get.GetApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyCommand;
@@ -39,7 +38,6 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
     @Autowired protected GetApiKeyUseCase getApiKey;
     @Autowired protected UpdateApiKeyUseCase updateApiKey;
     @Autowired protected DeleteApiKeyUseCase deleteApiKey;
-    @Autowired protected DismissApiKeyUseCase dismissApiKey;
     @Autowired protected VerifyApiKeyUseCase verifyApiKey;
 
     @BeforeEach

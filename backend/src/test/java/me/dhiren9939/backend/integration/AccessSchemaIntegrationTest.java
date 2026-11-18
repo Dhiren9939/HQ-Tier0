@@ -13,7 +13,7 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
 
     private static final Map<String, List<String>> EXPECTED_COLUMNS = Map.of(
             "api_keys", List.of("api_key_id", "lock_version", "user_id", "access_id", "access_secret_hash",
-                    "api_key_name", "created_at", "expires_at", "deleted_at", "revision"),
+                    "api_key_name", "created_at", "expires_at", "revision"),
             "api_key_permissions", List.of("api_key_id", "scope", "access_level"),
             "outbox", List.of("event_id", "event_type", "api_key_id", "change_version", "occurred_at", "emitted_at",
                     "user_id", "access_id", "access_secret_hash", "api_key_name", "permissions", "created_at",
@@ -55,7 +55,7 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
                 where table_schema = 'access'
                   and (column_name in ('ingestion_permission', 'tenant_permission', 'channel_permission',
                                        'applied_version', 'issued_version', 'desired_version',
-                                       'pending_change_id', 'confirmed_revision'))
+                                       'pending_change_id', 'confirmed_revision', 'deleted_at'))
                 """, String.class);
         assertThat(removed).isEmpty();
 

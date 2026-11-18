@@ -58,7 +58,6 @@ class ApiErrorHandlingTest {
                                     received.add(command);
                                     return VIEW;
                                 },
-                                command -> received.add(command),
                                 command -> received.add(command)))
                 .setControllerAdvice(new ApiKeyExceptionHandler(), new WebExceptionHandler())
                 .build();

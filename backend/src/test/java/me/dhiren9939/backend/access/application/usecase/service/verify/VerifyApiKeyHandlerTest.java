@@ -101,23 +101,14 @@ class VerifyApiKeyHandlerTest {
     }
 
     @Test
-    void aDeletedKeyIsReportedAsDeleted() {
-        apiKeys.existing(deleted());
+    @DisplayName("an expired key is only revealed to someone with the right secret")
+    void withAWrongSecretAnExpiredKeyLooksTheSame() {
+        InMemoryApiKeys fresh = new InMemoryApiKeys();
+        fresh.existing(active());
+        VerifyApiKeyHandler expired = new VerifyApiKeyHandler(fresh, List.of(V1), Clock.fixed(NOW.plus(Duration.ofDays(40)), ZoneOffset.UTC));
 
-        assertFailure(() -> verify("V1_acc", "secret_raw"), VerificationFailureCode.KEY_DELETED, "The API key has been deleted.");
-    }
-
-    @Test
-    @DisplayName("the state of a key is only revealed to someone with the right secret")
-    void withAWrongSecretEveryKeyLooksTheSame() {
-        for (ApiKey key : List.of(active(), deleted())) {
-            InMemoryApiKeys fresh = new InMemoryApiKeys();
-            fresh.existing(key);
-            VerifyApiKeyHandler expired = new VerifyApiKeyHandler(fresh, List.of(V1), Clock.fixed(NOW.plus(Duration.ofDays(40)), ZoneOffset.UTC));
-
-            assertFailure(() -> expired.handle(new VerifyApiKeyQuery("V1_acc", "wrong")),
-                    VerificationFailureCode.INVALID_CREDENTIALS, INVALID_MESSAGE);
-        }
+        assertFailure(() -> expired.handle(new VerifyApiKeyQuery("V1_acc", "wrong")),
+                VerificationFailureCode.INVALID_CREDENTIALS, INVALID_MESSAGE);
     }
 
     @Test

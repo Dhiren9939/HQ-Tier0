@@ -2,7 +2,6 @@ package me.dhiren9939.backend.access.application.usecase.user.delete;
 
 import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.common.access.events.outbound.DeleteApiKeyProjectionCommand;
@@ -31,13 +30,13 @@ class DeleteApiKeyHandlerTest {
     }
 
     @Test
-    void deletesAtOnceAndRegistersOneDeletedEvent() {
+    void removesTheRowAtOnceAndRegistersOneDeletedEvent() {
         ApiKey key = apiKeys.existing(active());
 
         delete(USER_ID, key);
 
-        assertThat(key.state(NOW)).isEqualTo(ApiKeyState.DELETED);
-        assertThat(apiKeys.contains(key.getApiKeyId())).as("stays as a tombstone until dismissed").isTrue();
+        assertThat(apiKeys.contains(key.getApiKeyId())).as("the row is gone, not a tombstone").isFalse();
+        assertThat(apiKeys.deletes).isEqualTo(1);
         assertThat(apiKeys.publishedEvents).hasSize(1);
         DeleteApiKeyProjectionCommand event = (DeleteApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
         assertThat(event.version()).isEqualTo(2);
@@ -46,12 +45,13 @@ class DeleteApiKeyHandlerTest {
     }
 
     @Test
-    void anAlreadyDeletedKeyCannotBeDeletedAgain() {
-        ApiKey key = apiKeys.existing(deleted());
+    void deletingTheSameKeyTwiceIsNotFound() {
+        ApiKey key = apiKeys.existing(active());
 
-        assertThatThrownBy(() -> delete(USER_ID, key)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(apiKeys.saves).isZero();
-        assertThat(apiKeys.publishedEvents).isEmpty();
+        delete(USER_ID, key);
+
+        assertThatThrownBy(() -> delete(USER_ID, key)).isInstanceOf(ApiKeyNotFoundException.class);
+        assertThat(apiKeys.deletes).isEqualTo(1);
     }
 
     @Test
@@ -70,6 +70,6 @@ class DeleteApiKeyHandlerTest {
         handler = new DeleteApiKeyHandler(apiKeys, CLOCK, transactions(alwaysConflicts()));
 
         assertThatThrownBy(() -> delete(USER_ID, key)).isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(apiKeys.saves).isZero();
+        assertThat(apiKeys.deletes).isZero();
     }
 }

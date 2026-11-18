@@ -106,13 +106,6 @@ class UpdateApiKeyHandlerTest {
     }
 
     @Test
-    void aDeletedKeyCannotBeUpdated() {
-        ApiKey key = apiKeys.existing(deleted());
-
-        assertThatThrownBy(() -> update(key, "x", null, null)).isInstanceOf(ApiKeyUpdateFailure.class);
-    }
-
-    @Test
     void unknownKeyAndForeignKeyAreNotFound() {
         ApiKey key = apiKeys.existing(active());
 

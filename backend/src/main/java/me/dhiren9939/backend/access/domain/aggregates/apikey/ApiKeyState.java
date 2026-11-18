@@ -5,7 +5,5 @@ public enum ApiKeyState {
     /** Issued and in force; authenticates until it expires. */
     ACTIVE,
     /** The expiry has passed. It can be renewed by an update that extends the lifetime. */
-    EXPIRED,
-    /** Deleted. Tombstone awaiting dismiss; cannot authenticate. */
-    DELETED
+    EXPIRED
 }

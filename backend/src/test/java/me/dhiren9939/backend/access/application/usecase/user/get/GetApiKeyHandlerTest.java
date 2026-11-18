@@ -47,10 +47,11 @@ class GetApiKeyHandlerTest {
     }
 
     @Test
-    void aDeletedKeyStaysVisibleAsATombstone() {
-        ApiKey key = apiKeys.existing(deleted());
+    void aDeletedKeyIsGone() {
+        ApiKey key = apiKeys.existing(active());
+        apiKeys.delete(key);
 
-        assertThat(get(USER_ID, key).state()).isEqualTo(ApiKeyState.DELETED);
+        assertThatThrownBy(() -> get(USER_ID, key)).isInstanceOf(ApiKeyNotFoundException.class);
     }
 
     @Test

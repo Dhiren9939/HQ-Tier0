@@ -11,6 +11,5 @@ class ApiKeyStatusTest {
     void eachInternalStateHasItsOwnStatus() {
         assertThat(ApiKeyStatus.of(ApiKeyState.ACTIVE)).isEqualTo(ApiKeyStatus.ACTIVE);
         assertThat(ApiKeyStatus.of(ApiKeyState.EXPIRED)).isEqualTo(ApiKeyStatus.EXPIRED);
-        assertThat(ApiKeyStatus.of(ApiKeyState.DELETED)).isEqualTo(ApiKeyStatus.DELETED);
     }
 }

@@ -40,13 +40,6 @@ public final class Fixtures {
         return key;
     }
 
-    public static ApiKey deleted() {
-        ApiKey key = active();
-        key.delete(NOW);
-        key.pullDomainEvents();
-        return key;
-    }
-
     /** Transactions that do nothing: handler tests are about the logic, not the database. */
     public static RetriedTransaction transactions() {
         return transactions(new OptimisticLockRetry());

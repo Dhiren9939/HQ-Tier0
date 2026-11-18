@@ -2,11 +2,9 @@ package me.dhiren9939.backend.access.domain.aggregates.apikey;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import jakarta.persistence.*;
-import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel;
 import me.dhiren9939.backend.access.domain.events.ApiKeyCreated;
 import me.dhiren9939.backend.access.domain.events.ApiKeyDeleted;
 import me.dhiren9939.backend.access.domain.events.ApiKeyEvent;
@@ -16,20 +14,17 @@ import java.time.Instant;
 import java.util.*;
 
 /**
- * The API key aggregate. It owns every rule about how a key is issued, changed, dismissed and deleted; callers
+ * The API key aggregate. It owns every rule about how a key is issued, changed and deleted; callers
  * state intent through its methods, there are no setters.
  *
  * <p>HQ is the source of truth. Every command applies to the key at once, in the caller's transaction, and
  * registers the matching domain event; the persistence layer collects them with {@link #pullDomainEvents()} after
- * saving the key and maps them to the published contract. Nothing waits on the data plane: it is expected to
- * conform to the events, which carry a per-key {@code version} for ordering and idempotency.</p>
- *
- * <p>A delete is not removed at once: the key stays as a {@code DELETED} tombstone until the owner dismisses it,
- * so the removal stays visible.</p>
+ * saving or removing the key and maps them to the published contract. Nothing waits on the data plane: it is
+ * expected to conform to the events, which carry a per-key {@code version} for ordering and idempotency.</p>
  */
 @Entity
 @Getter
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@NoArgsConstructor(access = lombok.AccessLevel.PROTECTED)
 @Table(name = "api_keys", schema = "access")
 public class ApiKey {
 
@@ -59,16 +54,13 @@ public class ApiKey {
     @MapKeyColumn(name = "scope", length = 50)
     @Enumerated(EnumType.STRING)
     @Column(name = "access_level", nullable = false, length = 50)
-    @Getter(AccessLevel.NONE)
-    private Map<Scope, me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel> permissionLevels = new EnumMap<>(Scope.class);
+    @Getter(lombok.AccessLevel.NONE)
+    private Map<Scope, AccessLevel> permissionLevels = new EnumMap<>(Scope.class);
 
     @Column(nullable = false)
     private Instant createdAt;
 
     private Instant expiresAt;
-
-    /** Set when the key is deleted; it then stays as a tombstone until dismissed. */
-    private Instant deletedAt;
 
     /** The key's own event sequence: 1 at issuance, +1 per change. Carried as the {@code version} of events. */
     @Column(nullable = false)
@@ -76,11 +68,11 @@ public class ApiKey {
 
     @Version
     @Column(nullable = false)
-    private Long lockVersion;
+    private long lockVersion;
 
     /** Events registered by commands and not yet collected. Not persisted. */
     @Transient
-    @Getter(AccessLevel.NONE)
+    @Getter(lombok.AccessLevel.NONE)
     private final List<ApiKeyEvent> pendingEvents = new ArrayList<>();
 
     // ---------------------------------------------------------------------------------------------
@@ -109,8 +101,6 @@ public class ApiKey {
      * differs from the current one.
      */
     public boolean update(ApiKeyChanges changes, Instant now) {
-        assertNotDeleted("update");
-
         String name = apiKeyName;
         Instant expiry = expiresAt;
         Permissions updatedPermissions = getPermissions();
@@ -146,23 +136,10 @@ public class ApiKey {
         return true;
     }
 
-    /** Deletes the key. It stays as a tombstone until dismissed; the deletion event is registered at once. */
+    /** Registers the deletion event at the next version; the caller removes the key's row. */
     public void delete(Instant now) {
-        assertNotDeleted("delete");
-
         revision++;
-        deletedAt = now;
         pendingEvents.add(deletedEvent(now));
-    }
-
-    /**
-     * The owner acknowledges the deleted tombstone. Tells the caller whether the key must be removed. It only
-     * records that the owner has seen the state; the deletion event was registered when the key was deleted,
-     * so dismissing registers nothing.
-     */
-    public void dismiss() {
-        if (deletedAt == null)
-            throw new ApiKeyUpdateFailure(UpdateFailureCode.NOTHING_TO_DISMISS, "API key has nothing to dismiss");
     }
 
     /** Returns the events registered since the last call, in order, and forgets them. */
@@ -190,12 +167,10 @@ public class ApiKey {
      * a key whose expiry has passed is {@link ApiKeyState#EXPIRED}.
      */
     public ApiKeyState state(Instant now) {
-        if (deletedAt != null)
-            return ApiKeyState.DELETED;
         return expiresAt != null && expiresAt.isBefore(now) ? ApiKeyState.EXPIRED : ApiKeyState.ACTIVE;
     }
 
-    /** Verification trusts HQ's state outright: deleted or expired keys do not authenticate, everything else does. */
+    /** Verification trusts HQ's state outright: expired keys do not authenticate, everything else does. */
     public boolean canAuthenticate(Instant now) {
         return state(now) == ApiKeyState.ACTIVE;
     }
@@ -220,10 +195,5 @@ public class ApiKey {
     private void assignPermissions(Permissions permissions) {
         permissionLevels.clear();
         permissionLevels.putAll(permissions.asMap());
-    }
-
-    private void assertNotDeleted(String action) {
-        if (deletedAt != null)
-            throw new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_DELETED, "Can't " + action + " a deleted API key");
     }
 }

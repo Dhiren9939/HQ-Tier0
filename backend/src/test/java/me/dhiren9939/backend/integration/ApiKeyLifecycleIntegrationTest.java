@@ -6,7 +6,6 @@ import me.dhiren9939.backend.common.access.VerificationFailureCode;
 import me.dhiren9939.backend.common.access.VerifyApiKeyQuery;
 import me.dhiren9939.backend.access.application.usecase.service.verify.VerifiedApiKey;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel;
@@ -97,8 +96,6 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
                 new UpdateApiKeyCommand(stranger, key.apiKeyId(), "stolen", null, null)))
                 .isInstanceOf(ApiKeyNotFoundException.class);
         assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(stranger, key.apiKeyId())))
-                .isInstanceOf(ApiKeyNotFoundException.class);
-        assertThatThrownBy(() -> dismissApiKey.handle(new DismissApiKeyCommand(stranger, key.apiKeyId())))
                 .isInstanceOf(ApiKeyNotFoundException.class);
         assertThat(view(owner, key.apiKeyId()).apiKeyName()).isEqualTo("mine");
     }
@@ -191,13 +188,16 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("a deleted key cannot be updated")
-    void deletedKeyCannotChange() {
+    @DisplayName("a deleted key is gone: read, update and delete all report not found")
+    void deletedKeyIsGone() {
         UUID id = issueActive(owner, "k", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
 
+        assertThatThrownBy(() -> view(owner, id)).isInstanceOf(ApiKeyNotFoundException.class);
         assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "x", null, null)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
+                .isInstanceOf(ApiKeyNotFoundException.class);
+        assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(owner, id)))
+                .isInstanceOf(ApiKeyNotFoundException.class);
         assertThat(outbox()).hasSize(2);
     }
 
@@ -206,45 +206,25 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     // ------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("delete leaves a DELETED tombstone at once; dismiss removes everything with no new event")
-    void deleteTombstone() {
+    @DisplayName("delete removes the row at once and writes apiKey.projection.delete at version 2")
+    void deleteRemovesTheRow() {
         IssuedApiKeyResult issued = issueActive(owner, "doomed", Lifetime.NEVER, ingestionWrite());
         UUID id = issued.key().apiKeyId();
         String accessId = issued.key().accessId();
 
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
 
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.DELETED);
         List<OutboxRow> rows = outbox();
         assertThat(rows).hasSize(2);
         assertThat(rows.get(1).eventType()).isEqualTo("apiKey.projection.delete");
         assertThat(rows.get(1).version()).isEqualTo(2);
         assertThat(rows.get(1).permissions()).isEqualTo("{\"INGESTION\":\"WRITE\"}");
-        assertThat(jdbc.queryForObject("select deleted_at is not null from access.api_keys", Boolean.class)).isTrue();
-        assertVerifyFails(accessId, issued.accessSecret(), VerificationFailureCode.KEY_DELETED);
-        assertThatThrownBy(() -> updateApiKey.handle(new UpdateApiKeyCommand(owner, id, "x", null, null)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThatThrownBy(() -> deleteApiKey.handle(new DeleteApiKeyCommand(owner, id)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(count("access.api_keys where access_id = '" + accessId + "'"))
-                .as("the Access ID stays reserved while the tombstone exists").isEqualTo(1);
-
-        dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
-
-        assertThat(outbox()).as("dismissing a tombstone emits nothing").hasSize(2);
         assertThat(count("access.api_keys")).isZero();
         assertThat(count("access.api_key_permissions")).isZero();
+        assertThat(count("access.api_keys where access_id = '" + accessId + "'"))
+                .as("the Access ID is free again at once").isZero();
         assertThatThrownBy(() -> view(owner, id)).isInstanceOf(ApiKeyNotFoundException.class);
-    }
-
-    @Test
-    @DisplayName("dismissing a healthy key is refused")
-    void dismissActiveKeyRefused() {
-        UUID id = issueActive(owner, "fine", Lifetime.NEVER, ingestionWrite()).key().apiKeyId();
-
-        assertThatThrownBy(() -> dismissApiKey.handle(new DismissApiKeyCommand(owner, id)))
-                .isInstanceOf(ApiKeyUpdateFailure.class);
-        assertThat(view(owner, id).state()).isEqualTo(ApiKeyState.ACTIVE);
+        assertVerifyFails(accessId, issued.accessSecret(), VerificationFailureCode.INVALID_CREDENTIALS);
     }
 
     // ------------------------------------------------------------------------------------------

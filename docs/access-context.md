@@ -37,54 +37,49 @@ Ubiquitous language, rules, code map and tests for the Access context (supportin
 | **Propagation** | The aggregate registers the control event; `ApiKeysAdapter` writes it to the outbox in the same transaction (see Outbox below). |
 | **Apply-at-once** | Every command (issue, update, delete) takes effect on the aggregate the moment it is accepted. There is no pending state and nothing to wait for. |
 | **Event version** | The revision stamped on each projection event. Events for one key are unique and strictly increasing, so a consumer can drop duplicates and reorder safely. |
-| **Dismiss** | The owner removes a deleted key's tombstone. It emits nothing (the delete event went out when the delete was accepted) and is refused for a key that is not deleted. Nothing disappears without a dismiss. |
-| **Deleted (tombstone)** | A deleted key. It stays visible to its owner, cannot authenticate, and accepts no further changes until the owner dismisses it. |
+| **Hard delete** | Deleting removes the key's row at once. Nothing is kept as a tombstone, the key is immediately gone from reads, and its Access ID is free to issue again. The `ApiKeyDeleted` event still goes to the outbox in the same transaction. |
 
 ## Commands
 
 - **Issue**: create a key; revision 1, `ApiKeyCreated` event. The key is `ACTIVE` at once.
 - **Update**: change name, permissions and/or lifetime; revision +1 and an `ApiKeyUpdated` event. An update that changes nothing does nothing (no revision, no event).
-- **Delete**: the key becomes a `DELETED` tombstone at once; revision +1 and an `ApiKeyDeleted` event.
-- **Dismiss**: remove the tombstone of a deleted key; emits nothing.
+- **Delete**: the key is removed at once; revision +1 and an `ApiKeyDeleted` event in the same transaction, then the row is deleted.
 
 ## States
 
-States are derived, not stored: from `deletedAt` and the clock.
+States are derived, not stored: from the expiry and the clock.
 
 | State | Meaning |
 |---|---|
 | `ACTIVE` | Issued and in force; authenticates until it expires. |
 | `EXPIRED` | The expiry has passed. It can be renewed by an update that extends the lifetime. |
-| `DELETED` | Tombstone: visible to the owner, cannot authenticate, awaiting dismiss. |
 
 ```
- Issue --> ACTIVE <-------------+
-             |  ^               |
-        update/|  | update       |
-        delete |  | (renew)      |
-             v  |               |
-          (ACTIVE, new revision)+
+ Issue --> ACTIVE --update--> ACTIVE or EXPIRED (revision +1)
              |
-           delete
+        expiry passes, or an update renews it
              v
-          DELETED --dismiss--> removed (no event)
+          EXPIRED --update (renew)--> ACTIVE
+
+ any key --delete--> removed (row deleted; ApiKeyDeleted written to the outbox)
 ```
 
-Every command applies immediately and bumps the revision; only dismiss removes the key, and it emits nothing.
+Every command applies immediately. Update bumps the revision; delete removes the key and writes its event in the
+same transaction. A deleted key has no state: it is simply not found.
 
 ## Behaviour decisions
 
 - **HQ is the source of truth.** A change is applied to the aggregate as soon as the command is accepted and the event is written to the outbox in the same transaction. The data plane reads the events and conforms; nothing waits for its answer, and there is no confirm, reject or cancel handshake.
-- A deleted key does **not** disappear. It becomes a visible `DELETED` tombstone that cannot authenticate and accepts no update or delete; only the owner's dismiss removes it, and that dismiss emits no event.
-- The Access ID stays reserved until the tombstone is dismissed.
+- A deleted key **does** disappear. The row is removed in the same transaction that writes its `ApiKeyDeleted` event; there is no tombstone, no `DELETED` state and nothing to dismiss. Reads, updates and further deletes then report not found.
+- The Access ID is free again as soon as the delete lands; it can be issued to a new key immediately.
 - `CreateApiKeyProjectionCommand`, `UpdateApiKeyProjectionCommand`, `DeleteApiKeyProjectionCommand` carry the type strings (`apiKey.projection.create`, `apiKey.projection.update`, `apiKey.projection.delete`) and the key's `version` (the revision). Events for one key are unique and strictly increasing by version.
 
 ## Invariants
 
 1. The secret is never stored.
 2. An update that changes nothing does nothing: no revision bump, no event.
-3. A `DELETED` key accepts no update or delete; its tombstone is removed only by dismiss, which emits nothing.
-4. Verification succeeds only for `ACTIVE` keys. The secret is checked before the key's state, so `KEY_EXPIRED`, `KEY_DELETED` and `KEY_NOT_ACTIVE` are only revealed to someone who holds the right secret (no enumeration).
+3. A delete removes the key's row and registers `ApiKeyDeleted` in the same transaction; there is no tombstone and the Access ID is reusable at once.
+4. Verification succeeds only for `ACTIVE` keys. The secret is checked before the key's state, so `KEY_EXPIRED` is only revealed to someone who holds the right secret (no enumeration).
 5. Only the owner can read or change a key.
 6. Permissions never contain null, and every level is one its scope accepts (otherwise HTTP 400).
 7. Every projection event carries the key's revision as its `version`; versions of one key are unique and strictly increasing.
@@ -103,7 +98,7 @@ Every command applies immediately and bumps the revision; only dismiss removes t
 | `ApiKeyFailureReason` (`OUTBOX`, `NACK`, `TIMEOUT`) | removed; nothing fails asynchronously any more |
 | `issuedVersion` + `desiredVersion` | `revision` |
 | `appliedVersion` | removed; the revision is both the key's and the event's version |
-| (new) | `deletedAt` (tombstone), derived `ApiKeyState` |
+| (new) | derived `ApiKeyState` (`ACTIVE`, `EXPIRED`) |
 | `new Permissions(null, null, null)` used as a patch | `ApiKeyChanges` + `PermissionChanges` (`domain.aggregates.apikey`) |
 | `Permissions(ingestionPermission, tenantPermission, channelPermission)` record with `@Embeddable` | `Permissions` map-form value object (`domain.aggregates.apikey`, no JPA) over `Scope` -> `AccessLevel` |
 | `ApiKeyPermissions.Ingestion` / `.Tenant` / `.Channel` enums | `Scope` enum (declares its allowed levels) + one `AccessLevel` enum (both in `domain.aggregates.apikey`) |
@@ -119,12 +114,12 @@ Every command applies immediately and bumps the revision; only dismiss removes t
 | `ApiKeyController` in `web` | `presentation.api.controllers`, depend on the use cases only; DTOs in `presentation.api.dtos` |
 | `ApiKeyInternalController` (`/internal/...` success/failure acks) | removed with the handshake; there is no internal HTTP surface |
 | `ApiKeyFacadeImpl` | `presentation.facade.ApiKeyFacadeImpl`, implements `common.access.ApiKeyVerificationFacade` and calls `VerifyApiKeyUseCase` with a `VerifyApiKeyQuery` |
-| `acknowledgeFailure` (user-facing) | Dismiss: `POST /api/v1/user/{userId}/apikey/{apiKeyId}/dismiss` (tombstones only) |
+| `acknowledgeFailure` (user-facing) | removed; delete removes the key outright, so there is nothing to dismiss |
 | schema `api_key`, tables `api_keys`, `api_key_next`, `outbox` | schema `access`, tables `api_keys`, `outbox` |
 | Delivery Service (other context) | Dispatcher |
 
 ## HTTP status and errors
-Responses carry one status field, `status`, a presentation enum (`ApiKeyStatus`) derived from the internal `ApiKeyState` and the clock: `ACTIVE`, `EXPIRED` or `DELETED` (a deleted key shows as `DELETED` until dismissed). It says where the key stands, never why: no revisions, version counters or secret hashes are exposed, and the internal states can change without breaking clients.
+Responses carry one status field, `status`, a presentation enum (`ApiKeyStatus`) derived from the internal `ApiKeyState` and the clock: `ACTIVE` or `EXPIRED` (a deleted key is not returned at all: it is not found). It says where the key stands, never why: no revisions, version counters or secret hashes are exposed, and the internal states can change without breaking clients.
 
 **Errors.** Every error is an RFC 9457 `application/problem+json` body with a human-readable `detail` that is safe to show to end users and a machine-readable `code` that names the exact cause, so a client can branch on it without reading the message. Nothing the caller sent and nothing the server threw is echoed back.
 
@@ -158,13 +153,11 @@ Every other error has one top-level code:
 | `ROUTE_NOT_FOUND` | 404 | No such endpoint. |
 | `METHOD_NOT_ALLOWED` | 405 | Known route, wrong method; the `Allow` header is kept. |
 | `NOT_ACCEPTABLE` | 406 | The `Accept` header asks for something the API cannot produce. |
-| `API_KEY_DELETED` | 409 | The key has been deleted; a tombstone accepts no update or delete. |
-| `NOTHING_TO_DISMISS` | 409 | The key is not a deleted tombstone, so there is nothing to dismiss. |
 | `CONCURRENT_MODIFICATION` | 409 | Concurrent changes kept winning the race and the retries ran out. |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Missing or wrong `Content-Type`. |
 | `INTERNAL_ERROR` | 500 | Anything unexpected: generic message, logged in full on the server. |
 
-Verification failures (`MALFORMED_CREDENTIALS`, `INVALID_CREDENTIALS`, `KEY_EXPIRED`, `KEY_DELETED`, `KEY_NOT_ACTIVE`) use the same body. Both handlers live in Access: `presentation/api/errors/WebExceptionHandler` (framework and unexpected errors) and `presentation/api/controllers/ApiKeyExceptionHandler`, which handles the Access domain exceptions and runs first. Every context owns its error handling; there is no shared error package. Domain refusals carry their code in the exception (`UpdateFailureCode`, and the common `VerificationFailureCode`), so the code is chosen where the rule is, not guessed from a message.
+Verification failures (`MALFORMED_CREDENTIALS`, `INVALID_CREDENTIALS`, `KEY_EXPIRED`) use the same body. Both handlers live in Access: `presentation/api/errors/WebExceptionHandler` (framework and unexpected errors) and `presentation/api/controllers/ApiKeyExceptionHandler`, which handles the Access domain exceptions and runs first. Every context owns its error handling; there is no shared error package. Domain refusals carry their code in the exception (`UpdateFailureCode`, and the common `VerificationFailureCode`), so the code is chosen where the rule is, not guessed from a message.
 
 
 ## Known bugs fixed by the refactor
@@ -174,7 +167,7 @@ Verification failures (`MALFORMED_CREDENTIALS`, `INVALID_CREDENTIALS`, `KEY_EXPI
 
 ## Outbox
 
-Projection events are registered by the `ApiKey` aggregate itself (`issue`, `update`, `delete`) as domain events and collected with `pullDomainEvents()`. `ApiKeysAdapter` maps each one through `ApiKeyProjectionMapper.toProjectionCommand(...)` and writes the resulting command to the outbox itself (`EventOutboxEntity.of(command)`) right after `save`/`delete`, in the caller's transaction, so if the row cannot be written the key change rolls back too. Dismiss registers nothing: the delete event went out when the delete was accepted. Event types are `apiKey.projection.create`, `apiKey.projection.update` and `apiKey.projection.delete`.
+Projection events are registered by the `ApiKey` aggregate itself (`issue`, `update`, `delete`) as domain events and collected with `pullDomainEvents()`. `ApiKeysAdapter` maps each one through `ApiKeyProjectionMapper.toProjectionCommand(...)` and writes the resulting command to the outbox itself (`EventOutboxEntity.of(command)`) right after `save`/`delete`, in the caller's transaction, so if the row cannot be written the key change (or the delete) rolls back too. Event types are `apiKey.projection.create`, `apiKey.projection.update` and `apiKey.projection.delete`.
 
 The domain's `ApiKeyEvent` is a `sealed interface` permitting exactly `ApiKeyCreated`, `ApiKeyUpdated` and `ApiKeyDeleted`; the mapper's exhaustive `switch` stops compiling when a type is added. The published `ApiKeyProjectionCommand` is also sealed and permits exactly the three common command records, and `EventOutboxEntity.of(...)` switches over them.
 
@@ -216,10 +209,10 @@ Nothing else changes: updates (`PermissionChanges`), persistence, the web layer,
 ## Class structure
 ### How to read the code
 
-1. Start at **`access/domain/aggregates/apikey/ApiKey.java`**. It is the whole business: a key is issued, changed, deleted and dismissed through its methods, and every accepted change is applied at once. It has no setters.
+1. Start at **`access/domain/aggregates/apikey/ApiKey.java`**. It is the whole business: a key is issued, changed and deleted through its methods, and every accepted change is applied at once. It has no setters.
    Its siblings are the small value types; `domain/exceptions` holds its exceptions and
    `domain/repositories/ApiKeys` is the storage contract the domain defines.
-2. `access/application/usecase` has one package per operation (`issue`, `get`, `update`, `delete`, `dismiss`,
+2. `access/application/usecase` has one package per operation (`issue`, `get`, `update`, `delete`,
    `verify`). Each holds the `*UseCase` interface that the outside world calls, its
    `*Command` or `*Query` (and result record), and its package-private `*Handler`. A handler loads the key, calls
    one method on it, saves it. It holds no business rules.
@@ -295,13 +288,11 @@ classDiagram
         apiKeyName
         createdAt
         expiresAt
-        deletedAt
         revision
         lockVersion
         +issue(userId, name, credential, permissions, createdAt, expiresAt) ApiKey
         +update(changes, now) boolean
         +delete(now)
-        +dismiss()
         +state(now) ApiKeyState
         +canAuthenticate(now) boolean
         +getPermissions() Permissions
@@ -334,7 +325,6 @@ classDiagram
         <<enumeration>>
         ACTIVE
         EXPIRED
-        DELETED
     }
     class Lifetime {
         <<enumeration>>
@@ -381,7 +371,7 @@ classDiagram
 ```
 
 How the pieces fit: the plain fields (`apiKeyName`, permissions, `expiresAt`) are the key's current state; a change
-is applied to them the moment its command is accepted. `state(now)` is derived from `deletedAt` and the clock; it is
+is applied to them the moment its command is accepted. `state(now)` is derived from the expiry and the clock; it is
 never stored. `revision` is the change counter carried as `version` in events. `ApiKeyNotFoundException`,
 `ApiKeyUpdateFailure` and `InvalidPermissionsException` are plain runtime exceptions.
 
@@ -452,8 +442,6 @@ classDiagram
         MALFORMED_CREDENTIALS
         INVALID_CREDENTIALS
         KEY_EXPIRED
-        KEY_DELETED
-        KEY_NOT_ACTIVE
     }
     class InvalidPermissionsException {
         <<exception, domain>>
@@ -500,7 +488,6 @@ flowchart LR
         GetUC["GetApiKeyUseCase"]
         UpdateUC["UpdateApiKeyUseCase"]
         DeleteUC["DeleteApiKeyUseCase"]
-        DismissUC["DismissApiKeyUseCase"]
         VerifyUC["VerifyApiKeyUseCase"]
     end
     subgraph usecase["usecase/* (package-private handlers) and transaction"]
@@ -508,7 +495,6 @@ flowchart LR
         GetH["GetApiKeyHandler"]
         UpdateH["UpdateApiKeyHandler"]
         DeleteH["DeleteApiKeyHandler"]
-        DismissH["DismissApiKeyHandler"]
         VerifyH["VerifyApiKeyHandler"]
         Tx["RetriedTransaction"]
         Retry["OptimisticLockRetry"]
@@ -524,7 +510,6 @@ flowchart LR
     GetUC --> GetH
     UpdateUC --> UpdateH
     DeleteUC --> DeleteH
-    DismissUC --> DismissH
     VerifyUC --> VerifyH
 
     IssueH --> ApiKeysP
@@ -533,10 +518,8 @@ flowchart LR
     UpdateH --> ApiKeysP
     UpdateH --> Tx
     DeleteH --> Tx
-    DismissH --> Tx
     Tx --> Retry
     DeleteH --> ApiKeysP
-    DismissH --> ApiKeysP
     VerifyH --> ApiKeysP
     VerifyH --> VerifierP
     VerifyH --> Parsed
@@ -550,11 +533,10 @@ Inputs and outputs of each use case (all records, each in its own `usecase/user/
 | `GetApiKeyUseCase` | `GetApiKeyQuery(userId, apiKeyId)` | `ApiKeyView` (no secrets, the HTTP layer turns its `state` into the public `ApiKeyStatus`) |
 | `UpdateApiKeyUseCase` | `UpdateApiKeyCommand(userId, apiKeyId, name, lifetime, permissions)` | `ApiKeyView` |
 | `DeleteApiKeyUseCase` | `DeleteApiKeyCommand(userId, apiKeyId)` | nothing |
-| `DismissApiKeyUseCase` | `DismissApiKeyCommand(userId, apiKeyId)` | nothing |
 | `VerifyApiKeyUseCase` | `VerifyApiKeyQuery(accessId, accessSecret)` (in `common/access`) | `VerifiedApiKey` |
 
 Notes: `GetApiKeyHandler` and `VerifyApiKeyHandler` run in read-only transactions and `IssueApiKeyHandler` is
-`@Transactional`. Every handler that changes an existing key (Update, Delete, Dismiss)
+`@Transactional`. Every handler that changes an existing key (Update, Delete)
 goes through `RetriedTransaction`: a fresh `REQUIRES_NEW` transaction per attempt, retried through
 `OptimisticLockRetry` when another writer changed the key first. Each retry re-reads the key, so the domain rules
 decide the outcome against its current state. When retries run out the caller gets `ApiKeyUpdateFailure` (409).
@@ -572,7 +554,7 @@ flowchart LR
         FacadeImpl["ApiKeyFacadeImpl"]
     end
     subgraph portin["application/usecase/*"]
-        UCs["the 6 use case interfaces"]
+        UCs["the 5 use case interfaces"]
     end
     subgraph portout["domain/repositories, application/interfaces"]
         ApiKeysP["ApiKeys"]
@@ -658,7 +640,7 @@ sequenceDiagram
     H->>V: matches(presentedSecret, storedHash)
     V-->>H: false means INVALID_CREDENTIALS
     H->>Key: canAuthenticate(now)
-    Key-->>H: false for deleted or expired keys: KEY_NOT_ACTIVE, KEY_DELETED or KEY_EXPIRED
+    Key-->>H: false for an expired key: KEY_EXPIRED
     H-->>F: VerifiedApiKey
     F-->>Caller: Success(new ApiKeyView(...))
     Note over H,F: On a rejection the handler throws ApiKeyVerificationFailure; the facade catches it and returns Failure(code, message)
@@ -667,17 +649,15 @@ sequenceDiagram
 A rejected verification is delivered as `ApiKeyVerifyResult.Failure` with a machine-readable `reason` and a message
 written for end users, so a gateway can branch on the code and pass the message on. It is never an exception across the
 facade boundary. An unknown access id, a wrong secret and an unsupported key format are one outcome
-(`INVALID_CREDENTIALS`), and the secret is checked before the key's state, so `KEY_EXPIRED`, `KEY_DELETED` and
-`KEY_NOT_ACTIVE` are only ever revealed to a caller who holds the right secret. Nothing leaks about keys they do not
-hold.
+(`INVALID_CREDENTIALS`), and the secret is checked before the key's state, so `KEY_EXPIRED` is only ever revealed to
+a caller who holds the right secret. A deleted key is simply unknown, so it fails with `INVALID_CREDENTIALS`. Nothing
+leaks about keys they do not hold.
 
 | Code | Message | HTTP (if mapped) |
 |---|---|---|
 | `MALFORMED_CREDENTIALS` | The API key is missing or not in a recognized format. | 400 |
 | `INVALID_CREDENTIALS` | The API key or secret is invalid. | 401 |
 | `KEY_EXPIRED` | The API key has expired. | 401 |
-| `KEY_DELETED` | The API key has been deleted. | 401 |
-| `KEY_NOT_ACTIVE` | The API key is not active. | 401 |
 
 ### 8. Package tree (every class)
 
@@ -689,7 +669,7 @@ me.dhiren9939.backend
 │   ├── VerifyApiKeyQuery                   access ID plus presented secret (toString masks the secret)
 │   ├── ApiKeyVerifyResult                  sealed Success(ApiKeyView) or Failure(VerificationFailureCode, message)
 │   ├── ApiKeyView                          secret-free payload carried by Success
-│   ├── VerificationFailureCode             MALFORMED_CREDENTIALS, INVALID_CREDENTIALS, KEY_EXPIRED, KEY_DELETED, KEY_NOT_ACTIVE
+│   ├── VerificationFailureCode             MALFORMED_CREDENTIALS, INVALID_CREDENTIALS, KEY_EXPIRED
 │   └── events/outbound/                    what Access sends to the data plane (the outbox)
 │       ├── ApiKeyProjectionCommand         sealed interface of the three projection commands
 │       ├── CreateApiKeyProjectionCommand   a new key (carries the secret hash)
@@ -699,7 +679,7 @@ me.dhiren9939.backend
     ├── domain/
     │   ├── aggregates/apikey/
     │   │   ├── ApiKey                      the aggregate: all lifecycle rules, JPA entity
-    │   │   ├── ApiKeyState                 derived lifecycle state (ACTIVE, EXPIRED, DELETED)
+    │   │   ├── ApiKeyState                 derived lifecycle state (ACTIVE, EXPIRED)
     │   │   ├── Lifetime                    ONE_DAY, ONE_MONTH, NEVER and expiryFrom(now)
     │   │   ├── ApiKeyChanges               optional name, lifetime, permission changes
     │   │   ├── PermissionChanges           partial scope-to-level update
@@ -717,7 +697,6 @@ me.dhiren9939.backend
     │   │   ├── get/                        GetApiKeyUseCase/Query/Handler
     │   │   ├── update/                     UpdateApiKeyUseCase/Command/Handler
     │   │   ├── delete/                     DeleteApiKeyUseCase/Command/Handler
-    │   │   ├── dismiss/                    DismissApiKeyUseCase/Command/Handler
     │   │   └── verify/                     VerifyApiKeyUseCase/Handler, VerifiedApiKey, ParsedApiKey, ApiKeyVerificationFailure (query comes from common/access)
     │   ├── events/ApiKeyProjectionMapper   domain events and permissions -> the common projection contract
     │   ├── model/                          ApiKeyView (CRUD read model; the verification view is common/access.ApiKeyView)
@@ -739,8 +718,9 @@ me.dhiren9939.backend
 ```
 
 Database objects (schema `access`): `api_keys`, `api_key_permissions`, `outbox`. The hand-written reference SQL is
-`backend/src/main/resources/db.migration/access/V1__create_access_schema.sql` (schema creation) and
-`V2__drop_pending_changes.sql` (drops the pending-change tables and columns the old confirm/reject handshake used).
+`backend/src/main/resources/db.migration/access/V1__create_access_schema.sql` (schema creation),
+`V2__drop_pending_changes.sql` (drops the pending-change tables and columns the old confirm/reject handshake used) and
+`V3__remove_api_key_tombstones.sql` (drops `deleted_at`; deletes remove the row outright).
 
 ### 9. Where do I change X?
 
@@ -789,7 +769,6 @@ classDiagram
         +issue(...) ApiKey
         +update(ApiKeyChanges, Instant) boolean
         +delete(Instant) void
-        +dismiss() void
         +canAuthenticate(Instant) boolean
         +state(Instant) ApiKeyState
         +pullDomainEvents() List~ApiKeyEvent~
@@ -865,7 +844,6 @@ by `Scope`. `pendingEvents` is `@Transient` and is drained once by `pullDomainEv
 | Get | `GetApiKeyUseCase` | `GetApiKeyHandler (package)` | `GetApiKeyQuery` | `ApiKeyView` |
 | Update | `UpdateApiKeyUseCase` | `UpdateApiKeyHandler (package)` | `UpdateApiKeyCommand` | `ApiKeyView` |
 | Delete | `DeleteApiKeyUseCase` | `DeleteApiKeyHandler (package)` | `DeleteApiKeyCommand` | none |
-| Dismiss | `DismissApiKeyUseCase` | `DismissApiKeyHandler (package)` | `DismissApiKeyCommand` | none |
 | Verify | `VerifyApiKeyUseCase` | `VerifyApiKeyHandler (package)` | `VerifyApiKeyQuery` | `VerifiedApiKey` |
 
 `VerifyApiKeyUseCase` uses the `common` query directly; the user-facing commands and queries are Access application types.
@@ -878,21 +856,18 @@ classDiagram
     class GetApiKeyUseCase { <<interface>> }
     class UpdateApiKeyUseCase { <<interface>> }
     class DeleteApiKeyUseCase { <<interface>> }
-    class DismissApiKeyUseCase { <<interface>> }
     class VerifyApiKeyUseCase { <<interface>> }
 
     class IssueApiKeyHandler
     class GetApiKeyHandler
     class UpdateApiKeyHandler
     class DeleteApiKeyHandler
-    class DismissApiKeyHandler
     class VerifyApiKeyHandler
 
     class IssueApiKeyCommand
     class GetApiKeyQuery
     class UpdateApiKeyCommand
     class DeleteApiKeyCommand
-    class DismissApiKeyCommand
     class IssuedApiKeyResult
     class ApiKeyView
     class ParsedApiKey
@@ -915,7 +890,6 @@ classDiagram
     GetApiKeyHandler ..|> GetApiKeyUseCase
     UpdateApiKeyHandler ..|> UpdateApiKeyUseCase
     DeleteApiKeyHandler ..|> DeleteApiKeyUseCase
-    DismissApiKeyHandler ..|> DismissApiKeyUseCase
     VerifyApiKeyHandler ..|> VerifyApiKeyUseCase
 
     IssueApiKeyHandler ..> IssueApiKeyCommand
@@ -924,7 +898,6 @@ classDiagram
     GetApiKeyHandler ..> ApiKeyView
     UpdateApiKeyHandler ..> UpdateApiKeyCommand
     DeleteApiKeyHandler ..> DeleteApiKeyCommand
-    DismissApiKeyHandler ..> DismissApiKeyCommand
     VerifyApiKeyHandler ..> ParsedApiKey
     VerifyApiKeyHandler ..> VerifiedApiKey
 
@@ -932,14 +905,12 @@ classDiagram
     GetApiKeyHandler --> ApiKeys
     UpdateApiKeyHandler --> ApiKeys
     DeleteApiKeyHandler --> ApiKeys
-    DismissApiKeyHandler --> ApiKeys
     VerifyApiKeyHandler --> ApiKeys
 
     IssueApiKeyHandler --> IssueCredentialPort
     VerifyApiKeyHandler --> CredentialVerifier
     UpdateApiKeyHandler --> RetriedTransaction
     DeleteApiKeyHandler --> RetriedTransaction
-    DismissApiKeyHandler --> RetriedTransaction
     RetriedTransaction --> OptimisticLockRetry
 
     ApiKeyProjectionMapper ..> ApiKeyEvent
@@ -969,7 +940,6 @@ classDiagram
     class GetApiKeyUseCase { <<interface>> }
     class UpdateApiKeyUseCase { <<interface>> }
     class DeleteApiKeyUseCase { <<interface>> }
-    class DismissApiKeyUseCase { <<interface>> }
     class VerifyApiKeyUseCase { <<interface>> }
 
     class ApiKeyVerificationFacade { <<interface>> }
@@ -981,7 +951,6 @@ classDiagram
     ApiKeyController --> GetApiKeyUseCase
     ApiKeyController --> UpdateApiKeyUseCase
     ApiKeyController --> DeleteApiKeyUseCase
-    ApiKeyController --> DismissApiKeyUseCase
 
     ApiKeyFacadeImpl ..|> ApiKeyVerificationFacade
     ApiKeyFacadeImpl --> VerifyApiKeyUseCase
@@ -1132,9 +1101,9 @@ Run from `backend/`. Numbers below were measured on this repo (Windows, Docker D
 
 | What | Command | Tests | Time |
 |---|---|---|---|
-| Unit tests only | `./mvnw test -Dgroups='!integration'` | 172 | about 30 s of Maven time |
-| Integration tests only | `./mvnw test -Dgroups=integration` | 34 | about a minute (container start included; varies by machine) |
-| Everything | `./mvnw test` | 206 | about 1.5 min |
+| Unit tests only | `./mvnw test -Dgroups='!integration'` | 158 | about 30 s of Maven time |
+| Integration tests only | `./mvnw test -Dgroups=integration` | 33 | about a minute (container start included; varies by machine) |
+| Everything | `./mvnw test` | 191 | about 1.5 min |
 
 - **Docker must be running for the integration tests.** They start a throwaway `postgres:17` container with
   Testcontainers (one container per test JVM, shared by all integration classes). They **never** use the
@@ -1166,13 +1135,13 @@ src/test/java/me/dhiren9939/backend
 └── integration/                                     real Postgres through the real application
 ```
 
-### Unit tests (172)
+### Unit tests (158)
 
 #### Domain and common contracts
 
 | Class (tests) | How | What it checks |
 |---|---|---|
-| `ApiKeyTest` (39) | Pure Java, no Spring, no mocks. Plain `ApiKey` objects and a fixed clock. | The aggregate's rules, grouped by method: **issue** (active key at revision 1, authenticating at once, readable by its owner); **ownership**; **canAuthenticate** (active and non-expiring keys authenticate; expired and deleted keys do not); **update** (each field alone, all at once, setting a scope to `NONE` revokes it, lifetime change restarts expiry, and every no-op case: same name, same level, same expiry, empty changes; no-ops bump nothing); **refusals** (update and delete refused on a `DELETED` tombstone); **delete** (the key becomes a tombstone at once, revision +1, `ApiKeyDeleted` event, refused when already deleted); **dismiss** (a tombstone is dismissed and the removal registers no event; a healthy key has nothing to dismiss); **domain events** (right `ApiKeyCreated`/`ApiKeyUpdated`/`ApiKeyDeleted` type, version, `occurredAt = now`, secret hash only on creation, nothing registered for no-ops or refused changes, events handed over once); **state(now) and expiry**. |
+| `ApiKeyTest` (31) | Pure Java, no Spring, no mocks. Plain `ApiKey` objects and a fixed clock. | The aggregate's rules, grouped by method: **issue** (active key at revision 1, authenticating at once, readable by its owner); **ownership**; **canAuthenticate** (active and non-expiring keys authenticate; expired keys do not); **update** (each field alone, all at once, setting a scope to `NONE` revokes it, lifetime change restarts expiry, and every no-op case: same name, same level, same expiry, empty changes; no-ops bump nothing); **delete** (revision +1 and `ApiKeyDeleted`; nothing else about the key changes, because the caller removes the row); **domain events** (right `ApiKeyCreated`/`ApiKeyUpdated`/`ApiKeyDeleted` type, version, `occurredAt = now`, secret hash only on creation, nothing registered for no-ops, events handed over once); **state(now) and expiry**. |
 | `PermissionChangesTest` (6) | Pure Java | Only the listed scopes change, `NONE` revokes, empty changes change nothing, `null` levels are dropped, an invalid level for a scope is rejected when the changes are built, the input map is copied. |
 | `PermissionsTest` (10) | Pure Java | A never-granted scope is `NONE`, `with(...)` returns a copy, explicit `NONE` equals missing, `INGESTION` accepts only `WRITE` while `TENANT`/`CHANNEL` accept every level, `asMap()` is unmodifiable, the input map is copied. |
 | `ScopeTest` (6) | Loops over `Scope.values()` | Every scope allows `NONE` and at least one real level, and every allowed level round-trips through `Permissions`. A new scope is covered automatically and fails here if it is declared inconsistently. |
@@ -1184,31 +1153,30 @@ src/test/java/me/dhiren9939/backend
 
 Each handler test sits in its handler's package, because the handlers are package-private. They use `InMemoryApiKeys`
 (a hand-written fake of the `ApiKeys` repository, not Mockito) and `Fixtures` (fixed clock, test user IDs, key
-factories such as `active()` and `deleted()`, a no-op `RetriedTransaction`), both public in
+factories such as `active()`, a no-op `RetriedTransaction`), both public in
 `access/application/usecase`. The fake behaves like the real
 adapter in one important way: whenever a key is saved or deleted it collects the key's domain events, maps them through the real `ApiKeyProjectionMapper`, and appends the resulting commands to `publishedEvents`, so tests can assert exactly what would reach the outbox.
 
 | Class (tests) | Main scenarios |
 |---|---|
 | `IssueApiKeyHandlerTest` (5) | Stores an active key and returns the secret once; registers exactly one `CreateApiKeyProjectionCommand` at version 1 carrying the hash; `NEVER` means no expiry, `ONE_DAY` expires tomorrow; the result's `toString` hides the secret. |
-| `GetApiKeyHandlerTest` (5) | Owner sees an active key and a `DELETED` tombstone; an unknown key and another user's key look identical (not found). |
-| `UpdateApiKeyHandlerTest` (9) | A name change applies at once and emits one event; a permission patch touches only the given scopes; a lifetime change restarts expiry; **noopSameValue** and other no-ops save nothing and emit nothing; a `DELETED` key cannot be updated; exhausted optimistic-lock retries become `ApiKeyUpdateFailure`. |
-| `DeleteApiKeyHandlerTest` (4) | Deletes at once (tombstone) and registers one `DeleteApiKeyProjectionCommand`; refused for a key that is already deleted; unknown or foreign key is not found. |
-| `DismissApiKeyHandlerTest` (4) | Tombstone: removed, no event (the delete event went out when the key was deleted). A healthy key has nothing to dismiss (refused). Exhausted retries become a conflict. |
-| `VerifyApiKeyHandlerTest` (8) | An active key with the right secret authenticates; an update is visible to verification at once; unknown, deleted, expired and wrong-secret cases all fail with the **same** message (the state of a key is only revealed to whoever holds its secret); a malformed access ID is a parsing failure; secrets never appear in `toString`. |
+| `GetApiKeyHandlerTest` (5) | Owner sees an active key; a deleted key is not found; an unknown key and another user's key look identical (not found). |
+| `UpdateApiKeyHandlerTest` (8) | A name change applies at once and emits one event; a permission patch touches only the given scopes; a lifetime change restarts expiry; **noopSameValue** and other no-ops save nothing and emit nothing; exhausted optimistic-lock retries become `ApiKeyUpdateFailure`. |
+| `DeleteApiKeyHandlerTest` (4) | Removes the row at once and registers one `DeleteApiKeyProjectionCommand`; deleting the same key again is not found; unknown or foreign key is not found; exhausted retries become a conflict. |
+| `VerifyApiKeyHandlerTest` (7) | An active key with the right secret authenticates; an update is visible to verification at once; unknown, expired and wrong-secret cases fail (an expired key is only revealed to whoever holds its secret); a deleted key looks unknown; a malformed access ID is a parsing failure; secrets never appear in `toString`. |
 
 #### Adapters and config
 
 | Class (tests) | How | What it checks |
 |---|---|---|
-| `ApiKeyControllerTest` (12) | Standalone MockMvc; the use case interfaces are small hand-written lambdas that record the commands they receive. No Spring context, no database. | Routing and JSON shapes: responses list every scope (`NONE` where never granted); a level a scope does not accept is 400 on create and patch; unknown scope or level names are 400; PATCH sends only the listed scopes and leaves omitted fields null in the command; GET never exposes a secret; dismiss reaches its use case. |
+| `ApiKeyControllerTest` (12) | Standalone MockMvc; the use case interfaces are small hand-written lambdas that record the commands they receive. No Spring context, no database. | Routing and JSON shapes: responses list every scope (`NONE` where never granted); a level a scope does not accept is 400 on create and patch; unknown scope or level names are 400; PATCH sends only the listed scopes and leaves omitted fields null in the command; GET never exposes a secret; delete reaches its use case. |
 | `ApiErrorHandlingTest` (13) | Standalone MockMvc with the real exception handlers and the test-only `VerifyProbeController`. | RFC 9457 bodies and status mapping: validation field errors, malformed or wrong-type bodies, unknown routes and methods, unsupported media types, domain conflicts, and verification/parsing failures becoming 401 and 400 instead of 500. |
 | `EventOutboxEntityTest` (4) | Plain object test | Each projection command (create, update, delete) maps to the right outbox row; the secret hash is only on created; permissions are stored as a JSON object keyed by scope. |
 | `ApiKeysAdapterTest` (4) | Plain object test with mocked repositories | Saving or deleting a key writes its events to the outbox and drains them; no events writes nothing; a failing outbox write surfaces so the transaction rolls back. |
 | `JpaMappingTest` (4) | Builds Hibernate metadata offline (no database) | Permissions are scope-to-level rows in the `access` schema; no per-scope columns are left; the outbox keeps permissions as one text column and carries `expires_at`; every entity table is in schema `access`. This checks the annotations only, not behaviour. |
 | `V1CredentialTest` (5) | Pure Java | Issued credentials carry the `V1_` prefix and a hash of the secret; every credential is different; the verifier accepts the right secret and rejects others; a malformed stored hash never matches (returns false instead of throwing). |
 | `ApiKeyConfigTest` (3) | Pure Java | New credentials use the configured key format; matching is case-insensitive; a format nobody can issue fails fast at startup. |
-| `ApiKeyStatusTest` (1) | Pure Java | The response status derives from the aggregate state and the clock: active, expired, deleted. |
+| `ApiKeyStatusTest` (1) | Pure Java | The response status derives from the aggregate state and the clock: active, expired. |
 
 #### `ArchitectureTest` (14)
 
@@ -1230,7 +1198,7 @@ The rules enforced:
 13. User use cases (`usecase.user..`) and service use cases (`usecase.service..`) never depend on each other.
 14. The user API controller (`ApiKeyController`) only calls user use cases; the facade (`ApiKeyFacadeImpl`) only calls service use cases.
 
-### Integration tests (34)
+### Integration tests (33)
 
 All of these run the real application against a throwaway Postgres 17. Each test starts with empty Access tables
 (`TRUNCATE`) and a clock that can be pinned.
@@ -1249,12 +1217,12 @@ All of these run the real application against a throwaway Postgres 17. Each test
 | Class (tests) | What it proves |
 |---|---|
 | `BackendApplicationTests` (1) | The whole Spring context starts against the container: bean wiring, entity mappings, the schema. |
-| `AccessSchemaIntegrationTest` (4) | With the app's normal `ddl-auto=update` config: schema `access` exists and nothing was created in `public`; every table has exactly the expected columns (the outbox carries a nullable `expires_at`); per-scope permission columns are gone; the pending-change tables and columns of the old handshake are gone; unique and foreign-key constraints exist. |
-| `ApiKeyLifecycleIntegrationTest` (10) | The whole key lifecycle through the use case interfaces with a real database: issue (active at once, one `apiKey.projection.create` row, secret never stored), verify (success, and unknown/wrong-secret/expired/deleted all fail with the right codes), update (applied at once, `apiKey.projection.update` at version 2), no-op update (no event, no revision), delete then dismiss (`DELETED` tombstone, dismiss removes everything with no new event), dismissing a healthy key is refused, ownership. |
+| `AccessSchemaIntegrationTest` (4) | With the app's normal `ddl-auto=update` config: schema `access` exists and nothing was created in `public`; every table has exactly the expected columns (no `deleted_at`; the outbox carries a nullable `expires_at`); per-scope permission columns are gone; the pending-change and tombstone columns and the pending-change tables are gone; unique and foreign-key constraints exist. |
+| `ApiKeyLifecycleIntegrationTest` (9) | The whole key lifecycle through the use case interfaces with a real database: issue (active at once, one `apiKey.projection.create` row, secret never stored), verify (success, and unknown/wrong-secret/expired/deleted all fail with the right codes), update (applied at once, `apiKey.projection.update` at version 2), no-op update (no event, no revision), delete (row and permission rows gone at once, `apiKey.projection.delete` at version 2, the Access ID is free again), a deleted key is not found for read/update/delete, ownership. |
 | `ApiKeyAtomicityIntegrationTest` (3) | A database trigger refuses outbox rows for a key named `boom`, so the outbox write really fails. Then: a failed issue leaves no key or permission rows; a failed update leaves the key at its old revision; a failed delete leaves it active. This is the "key change and outbox row commit together or not at all" guarantee. |
 | `ApiKeyConcurrencyIntegrationTest` (5, one test repeated 5 times) | 8 threads update the same key at once. Changes apply immediately and in sequence: every writer either lands its change or loses the optimistic-lock race; event versions stay unique and strictly increasing; the revision matches the number of landed changes; the last event describes the key's final state. |
-| `ApiKeyHttpIntegrationTest` (7) | Full stack over MockMvc: create (active at once), read, patch (applied at once), delete, tombstone, dismiss; 404 for unknown and foreign keys; 409 for changing a deleted key and for dismissing a healthy one; 400 for a level a scope does not accept, unknown scope, unknown level and malformed body; 400 for a create without name or expiry (not a 500); 401 and 400 from verification failures through the test probe. |
-| `SqlMigrationValidateIntegrationTest` (4) | Applies the hand-written `V1__create_access_schema.sql` and then `V2__drop_pending_changes.sql` to a fresh database, then boots with `ddl-auto=validate` so Hibernate refuses to start on any mismatch. Also checks every time column is `timestamp with time zone`, that an `Instant` round-trips unchanged under a different session time zone, and that a full key lifecycle runs on the hand-written tables. |
+| `ApiKeyHttpIntegrationTest` (7) | Full stack over MockMvc: create (active at once), read, patch (applied at once), delete, gone (all later operations are 404); the dismiss route no longer exists; 404 for unknown and foreign keys; 400 for a level a scope does not accept, unknown scope, unknown level and malformed body; 400 for a create without name or expiry (not a 500); 401 and 400 from verification failures through the test probe. |
+| `SqlMigrationValidateIntegrationTest` (4) | Applies the hand-written `V1__create_access_schema.sql`, `V2__drop_pending_changes.sql` and `V3__remove_api_key_tombstones.sql` to a fresh database, then boots with `ddl-auto=validate` so Hibernate refuses to start on any mismatch. Also checks every time column is `timestamp with time zone`, that an `Instant` round-trips unchanged under a different session time zone, and that a full key lifecycle runs on the hand-written tables. |
 
 ### What the tests do NOT prove
 

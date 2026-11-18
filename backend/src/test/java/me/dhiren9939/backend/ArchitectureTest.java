@@ -24,9 +24,9 @@ class ArchitectureTest {
     private static final String PRESENTATION = ROOT + ".access.presentation..";
     private static final String INFRASTRUCTURE = ROOT + ".access.infrastructure..";
     private static final String COMMON = ROOT + ".common..";
-    /** What the key's owner asks for: issue, get, update, delete, dismiss, cancel. */
+    /** What the key's owner asks for: issue, get, update, delete. */
     private static final String USER_USE_CASES = ROOT + ".access.application.usecase.user..";
-    /** What other services ask for: confirm, reject, verify. */
+    /** What other services ask for: verify. */
     private static final String SERVICE_USE_CASES = ROOT + ".access.application.usecase.service..";
 
     private static JavaClasses mainClasses;

@@ -5,8 +5,6 @@ import lombok.RequiredArgsConstructor;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.get.GetApiKeyQuery;
 import me.dhiren9939.backend.access.application.usecase.user.get.GetApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyCommand;
@@ -27,7 +25,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** HTTP endpoints for API-key CRUD and dismissing deleted keys. */
+/** HTTP endpoints for API-key CRUD. */
 @RestController
 @RequestMapping("/api/v1/user/{userId}/apikey")
 @RequiredArgsConstructor
@@ -37,7 +35,6 @@ class ApiKeyController {
     private final GetApiKeyUseCase getApiKey;
     private final UpdateApiKeyUseCase updateApiKey;
     private final DeleteApiKeyUseCase deleteApiKey;
-    private final DismissApiKeyUseCase dismissApiKey;
 
     @PostMapping
     public ResponseEntity<CreateResponseDto> create(@PathVariable UUID userId,
@@ -63,12 +60,6 @@ class ApiKeyController {
     @DeleteMapping("/{apiKeyId}")
     public ResponseEntity<Void> delete(@PathVariable UUID userId, @PathVariable UUID apiKeyId) {
         deleteApiKey.handle(new DeleteApiKeyCommand(userId, apiKeyId));
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/{apiKeyId}/dismiss")
-    public ResponseEntity<Void> dismiss(@PathVariable UUID userId, @PathVariable UUID apiKeyId) {
-        dismissApiKey.handle(new DismissApiKeyCommand(userId, apiKeyId));
         return ResponseEntity.noContent().build();
     }
 

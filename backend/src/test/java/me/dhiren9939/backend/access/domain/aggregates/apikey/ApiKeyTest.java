@@ -4,7 +4,6 @@ import me.dhiren9939.backend.access.domain.events.ApiKeyCreated;
 import me.dhiren9939.backend.access.domain.events.ApiKeyDeleted;
 import me.dhiren9939.backend.access.domain.events.ApiKeyEvent;
 import me.dhiren9939.backend.access.domain.events.ApiKeyUpdated;
-import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -15,7 +14,6 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Pure unit tests of the {@link ApiKey} aggregate: no Spring, no mocks. */
 class ApiKeyTest {
@@ -40,13 +38,6 @@ class ApiKeyTest {
 
     private static ApiKey activeWithoutEvents() {
         ApiKey key = issued();
-        key.pullDomainEvents();
-        return key;
-    }
-
-    private static ApiKey deleted() {
-        ApiKey key = activeWithoutEvents();
-        key.delete(NOW);
         key.pullDomainEvents();
         return key;
     }
@@ -77,7 +68,6 @@ class ApiKeyTest {
             assertThat(key.getCreatedAt()).isEqualTo(NOW);
             assertThat(key.getExpiresAt()).isEqualTo(ONE_MONTH_FROM_NOW);
             assertThat(key.getRevision()).isEqualTo(1);
-            assertThat(key.getDeletedAt()).isNull();
             assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
             assertThat(key.canAuthenticate(NOW)).isTrue();
         }
@@ -129,11 +119,6 @@ class ApiKeyTest {
         void expiredKey() {
             assertThat(issued().canAuthenticate(ONE_MONTH_FROM_NOW.plusSeconds(1))).isFalse();
         }
-
-        @Test
-        void deletedKey() {
-            assertThat(deleted().canAuthenticate(NOW)).isFalse();
-        }
     }
 
     @Nested
@@ -151,11 +136,6 @@ class ApiKeyTest {
         @Test
         void aKeyThatNeverExpiresIsNeverExpired() {
             assertThat(issuedWithoutExpiry().state(Instant.parse("2099-01-01T00:00:00Z"))).isEqualTo(ApiKeyState.ACTIVE);
-        }
-
-        @Test
-        void aTombstoneStaysDeletedWhateverTheClockSays() {
-            assertThat(deleted().state(afterExpiry)).isEqualTo(ApiKeyState.DELETED);
         }
 
         @Test
@@ -340,16 +320,6 @@ class ApiKeyTest {
 
             assertThat(key.getRevision()).isEqualTo(1);
         }
-
-        @Test
-        @DisplayName("refused on a deleted key")
-        void refusedWhenDeleted() {
-            ApiKey key = deleted();
-
-            assertThatThrownBy(() -> key.update(name("x"), NOW))
-                    .isInstanceOf(ApiKeyUpdateFailure.class)
-                    .hasMessage("Can't update a deleted API key");
-        }
     }
 
     @Nested
@@ -357,50 +327,16 @@ class ApiKeyTest {
     class Delete {
 
         @Test
-        @DisplayName("the key becomes a DELETED tombstone at once, with the current attributes")
+        @DisplayName("bumps the revision and registers the deletion event; the attributes stay as they were")
         void happyPath() {
             ApiKey key = activeWithoutEvents();
 
             key.delete(LATER);
 
             assertThat(key.getRevision()).isEqualTo(2);
-            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.DELETED);
-            assertThat(key.getDeletedAt()).isEqualTo(LATER);
-            assertThat(key.canAuthenticate(LATER)).isFalse();
+            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.ACTIVE);
             assertThat(key.isOwnedBy(USER_ID)).isTrue();
             assertThat(key.getApiKeyName()).isEqualTo(NAME);
-        }
-
-        @Test
-        @DisplayName("refused when already deleted")
-        void refusedWhenAlreadyDeleted() {
-            ApiKey key = deleted();
-
-            assertThatThrownBy(() -> key.delete(NOW))
-                    .isInstanceOf(ApiKeyUpdateFailure.class)
-                    .hasMessage("Can't delete a deleted API key");
-        }
-    }
-
-    @Nested
-    @DisplayName("dismiss()")
-    class Dismiss {
-
-        @Test
-        @DisplayName("a deleted tombstone is dismissed; the removal itself registers no event")
-        void tombstone() {
-            ApiKey key = deleted();
-
-            key.dismiss();
-
-            assertThat(key.state(NOW)).isEqualTo(ApiKeyState.DELETED);
-            assertThat(key.getRevision()).isEqualTo(2);
-            assertThat(key.pullDomainEvents()).isEmpty();
-        }
-
-        @Test
-        void nothingToDismissOnActiveKey() {
-            assertThatThrownBy(() -> issued().dismiss()).isInstanceOf(ApiKeyUpdateFailure.class);
         }
     }
 
@@ -466,16 +402,6 @@ class ApiKeyTest {
         }
 
         @Test
-        @DisplayName("a refused change registers no event")
-        void refusedChangeRegistersNothing() {
-            ApiKey key = deleted();
-
-            assertThatThrownBy(() -> key.update(name("x"), LATER)).isInstanceOf(ApiKeyUpdateFailure.class);
-
-            assertThat(key.pullDomainEvents()).isEmpty();
-        }
-
-        @Test
         @DisplayName("deleting registers ApiKeyDeleted at the next version")
         void deletionRegistersDeleted() {
             ApiKey key = activeWithoutEvents();
@@ -488,16 +414,6 @@ class ApiKeyTest {
             assertThat(deleted.apiKeyName()).isEqualTo(NAME);
             assertThat(deleted.accessId()).isEqualTo("V1_acc");
             assertThat(deleted.expiresAt()).isEqualTo(ONE_MONTH_FROM_NOW);
-        }
-
-        @Test
-        @DisplayName("dismissing registers nothing: the deletion event went out when the key was deleted")
-        void dismissalsRegisterNothing() {
-            ApiKey tombstone = deleted();
-
-            tombstone.dismiss();
-
-            assertThat(tombstone.pullDomainEvents()).isEmpty();
         }
     }
 }

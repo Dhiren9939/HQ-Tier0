@@ -3,8 +3,6 @@ package me.dhiren9939.backend.integration;
 import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssuedApiKeyResult;
@@ -58,6 +56,7 @@ class SqlMigrationValidateIntegrationTest {
         try (Connection connection = DriverManager.getConnection(url, postgres.getUsername(), postgres.getPassword())) {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V1__create_access_schema.sql"));
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V2__drop_pending_changes.sql"));
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V3__remove_api_key_tombstones.sql"));
         }
 
         registry.add("spring.datasource.url", () -> url);
@@ -71,7 +70,6 @@ class SqlMigrationValidateIntegrationTest {
     @Autowired VerifyApiKeyUseCase verifyApiKey;
     @Autowired UpdateApiKeyUseCase updateApiKey;
     @Autowired DeleteApiKeyUseCase deleteApiKey;
-    @Autowired DismissApiKeyUseCase dismissApiKey;
 
     @Test
     @DisplayName("Hibernate validates the entities against the tables created by the SQL file alone")
@@ -126,7 +124,6 @@ class SqlMigrationValidateIntegrationTest {
                 new PermissionChanges(Map.of(Scope.TENANT, AccessLevel.READ))));
 
         deleteApiKey.handle(new DeleteApiKeyCommand(owner, id));
-        dismissApiKey.handle(new DismissApiKeyCommand(owner, id));
 
         assertThat(jdbc.queryForList("select event_type from access.outbox order by change_version", String.class))
                 .containsExactly("apiKey.projection.create", "apiKey.projection.update", "apiKey.projection.delete");

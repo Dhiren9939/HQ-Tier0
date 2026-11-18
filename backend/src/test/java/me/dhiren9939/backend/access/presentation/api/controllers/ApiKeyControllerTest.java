@@ -3,8 +3,6 @@ package me.dhiren9939.backend.access.presentation.api.controllers;
 import me.dhiren9939.backend.access.application.usecase.service.verify.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.access.application.model.ApiKeyView;
 import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyUseCase;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyCommand;
-import me.dhiren9939.backend.access.application.usecase.user.dismiss.DismissApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.get.GetApiKeyUseCase;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyCommand;
 import me.dhiren9939.backend.access.application.usecase.user.issue.IssueApiKeyUseCase;
@@ -60,10 +58,9 @@ class ApiKeyControllerTest {
             return VIEW;
         };
         DeleteApiKeyUseCase delete = command -> received.add(command);
-        DismissApiKeyUseCase dismiss = command -> received.add(command);
 
         mvc = MockMvcBuilders
-                .standaloneSetup(new ApiKeyController(issue, get, update, delete, dismiss))
+                .standaloneSetup(new ApiKeyController(issue, get, update, delete))
                 .setControllerAdvice(new ApiKeyExceptionHandler())
                 .build();
     }
@@ -166,12 +163,10 @@ class ApiKeyControllerTest {
     }
 
     @Test
-    void deleteAndDismissReturn204AndSendTheirCommands() throws Exception {
+    void deleteReturns204AndSendsItsCommand() throws Exception {
         mvc.perform(delete("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID)).andExpect(status().isNoContent());
-        mvc.perform(post("/api/v1/user/{userId}/apikey/{id}/dismiss", USER_ID, KEY_ID)).andExpect(status().isNoContent());
 
-        assertThat(received).hasSize(2);
-        assertThat(received.get(1)).isEqualTo(new DismissApiKeyCommand(USER_ID, KEY_ID));
+        assertThat(received).containsExactly(new me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKeyCommand(USER_ID, KEY_ID));
     }
 
     @Test
@@ -198,7 +193,7 @@ class ApiKeyControllerTest {
 
     @Test
     void aRefusedChangeBecomes409() throws Exception {
-        failure = new ApiKeyUpdateFailure(UpdateFailureCode.API_KEY_DELETED, "Can't update a deleted API key");
+        failure = new ApiKeyUpdateFailure(UpdateFailureCode.CONCURRENT_MODIFICATION, "Concurrent modification");
 
         mvc.perform(patch("/api/v1/user/{userId}/apikey/{id}", USER_ID, KEY_ID)
                         .contentType(MediaType.APPLICATION_JSON)

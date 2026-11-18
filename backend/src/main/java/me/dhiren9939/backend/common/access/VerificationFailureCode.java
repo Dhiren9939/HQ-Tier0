@@ -12,9 +12,5 @@ public enum VerificationFailureCode {
     /** The access id is unknown, or the secret does not match. Deliberately one outcome for both. */
     INVALID_CREDENTIALS,
     /** The credentials are right but the key's expiry has passed. */
-    KEY_EXPIRED,
-    /** The credentials are right but the key has been deleted. */
-    KEY_DELETED,
-    /** The credentials are right but the key is not usable yet (creation still pending or failed). */
-    KEY_NOT_ACTIVE
+    KEY_EXPIRED
 }

@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import me.dhiren9939.backend.access.application.interfaces.CredentialVerifier;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
 import me.dhiren9939.backend.common.access.VerifyApiKeyQuery;
 import org.springframework.stereotype.Service;
@@ -15,8 +14,8 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Authenticates a presented credential. Unknown, provisioning, deleted, expired and wrong-secret keys,
- * and unsupported key formats, all fail identically so callers cannot tell them apart.
+ * Authenticates a presented credential. Unknown, expired and wrong-secret keys, and unsupported key formats,
+ * all fail identically so callers cannot tell them apart.
  */
 @Slf4j
 @Service
@@ -54,13 +53,8 @@ class VerifyApiKeyHandler implements VerifyApiKeyUseCase {
 
         Instant now = clock.instant();
         if (!key.canAuthenticate(now)) {
-            ApiKeyState state = key.state(now);
-            log.warn("ApiKey with accessId={} cannot authenticate in state {}", presented.accessId(), state);
-            throw switch (state) {
-                case EXPIRED -> ApiKeyVerificationFailure.expired();
-                case DELETED -> ApiKeyVerificationFailure.deleted();
-                default -> ApiKeyVerificationFailure.notActive();
-            };
+            log.warn("ApiKey with accessId={} cannot authenticate: expired", presented.accessId());
+            throw ApiKeyVerificationFailure.expired();
         }
 
         return new VerifiedApiKey(key.getApiKeyId(), key.getUserId(), key.getApiKeyName(),

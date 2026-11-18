@@ -43,7 +43,7 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("full lifecycle over HTTP: create, read, patch, delete, tombstone, dismiss")
+    @DisplayName("full lifecycle over HTTP: create, read, patch, delete, gone")
     void lifecycle() throws Exception {
         String created = json(post(keys()), """
                 {"name":"deploy","expiry":"ONE_DAY","permissions":{"INGESTION":"WRITE"}}""")
@@ -70,14 +70,10 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
                 .andExpect(jsonPath("$.apiKeyName").value("renamed"));
 
         send(delete(key)).andExpect(status().isNoContent());
-        send(get(key)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DELETED"));
-        json(patch(key), "{\"name\":\"zombie\"}").andExpect(status().isConflict());
-        send(delete(key)).andExpect(status().isConflict());
+        send(get(key)).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("API_KEY_NOT_FOUND"));
+        json(patch(key), "{\"name\":\"zombie\"}").andExpect(status().isNotFound());
+        send(delete(key)).andExpect(status().isNotFound());
 
-        int events = outbox().size();
-        send(post(key + "/dismiss")).andExpect(status().isNoContent());
-        send(get(key)).andExpect(status().isNotFound());
-        assertThat(outbox()).hasSize(events);
         assertThat(outbox()).extracting(OutboxRow::eventType).containsExactly(
                 "apiKey.projection.create", "apiKey.projection.update", "apiKey.projection.delete");
     }
@@ -124,18 +120,11 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("409: a deleted key refuses every change and an active key refuses to be dismissed over HTTP")
-    void conflicts() throws Exception {
+    @DisplayName("the dismiss endpoint is gone")
+    void dismissRouteIsGone() throws Exception {
         UUID id = create("{\"name\":\"k\",\"expiry\":\"NEVER\"}");
-        String key = keys() + "/" + id;
 
-        // an active key has nothing to dismiss
-        send(post(key + "/dismiss")).andExpect(status().isConflict());
-
-        // once deleted, the tombstone refuses every change
-        send(delete(key)).andExpect(status().isNoContent());
-        json(patch(key), "{\"name\":\"x\"}").andExpect(status().isConflict());
-        send(delete(key)).andExpect(status().isConflict());
+        send(post(keys() + "/" + id + "/dismiss")).andExpect(status().isNotFound());
     }
 
     @Test
