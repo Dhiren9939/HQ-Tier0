@@ -164,7 +164,7 @@ Every other error has one top-level code:
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Missing or wrong `Content-Type`. |
 | `INTERNAL_ERROR` | 500 | Anything unexpected: generic message, logged in full on the server. |
 
-Verification failures (`MALFORMED_CREDENTIALS`, `INVALID_CREDENTIALS`, `KEY_EXPIRED`, `KEY_DELETED`, `KEY_NOT_ACTIVE`) use the same body. The shared handler is `web.errors.WebExceptionHandler` (framework and unexpected errors, applies to every module); `ApiKeyExceptionHandler` handles the Access domain exceptions and runs first. Domain refusals carry their code in the exception (`UpdateFailureCode`, and the common `VerificationFailureCode`), so the code is chosen where the rule is, not guessed from a message.
+Verification failures (`MALFORMED_CREDENTIALS`, `INVALID_CREDENTIALS`, `KEY_EXPIRED`, `KEY_DELETED`, `KEY_NOT_ACTIVE`) use the same body. Both handlers live in Access: `presentation/api/errors/WebExceptionHandler` (framework and unexpected errors) and `presentation/api/controllers/ApiKeyExceptionHandler`, which handles the Access domain exceptions and runs first. Every context owns its error handling; there is no shared error package. Domain refusals carry their code in the exception (`UpdateFailureCode`, and the common `VerificationFailureCode`), so the code is chosen where the rule is, not guessed from a message.
 
 
 ## Known bugs fixed by the refactor
@@ -228,8 +228,9 @@ Nothing else changes: updates (`PermissionChanges`), persistence, the web layer,
    handler shares.
 4. `access/application/interfaces` lists what Access needs from outside besides storage:
    `IssueCredentialPort` (make a new credential) and `CredentialVerifier` (check a secret).
-5. `access/presentation` is how the outside reaches Access: `api/controllers` (REST controllers and error mapping),
-   `api/dtos` (request and response bodies) and `facade` (in-process verify).
+5. `access/presentation` is how the outside reaches Access: `api/controllers` (REST controllers), `api/dtos`
+   (request and response bodies), `api/errors` (the problem-body handlers: the domain handler runs first, the
+   framework handler is the last line of defence) and `facade` (in-process verify).
 6. `access/infrastructure` holds the Spring/JPA/crypto code that implements what the application and domain need:
    `persistence` (`models` for the outbox entity, `repositories` for the database access and outbox writes),
    `keyformat` (credential format V1) and `config` (wiring).
@@ -253,7 +254,7 @@ layer points the wrong way.
 
 ```mermaid
 flowchart TB
-    presentation["presentation (api/controllers, api/dtos, facade)"]
+    presentation["presentation (api/controllers, api/dtos, api/errors, facade)"]
     infrastructure["infrastructure (persistence, keyformat, config)"]
     application["application (usecase, model, transaction, interfaces)"]
     domain["domain (aggregates/apikey, events, exceptions, repositories)"]
@@ -724,6 +725,7 @@ me.dhiren9939.backend
     │   └── interfaces/                     IssueCredentialPort, CredentialVerifier
     ├── presentation/
     │   ├── api/controllers/                ApiKeyController, ApiKeyExceptionHandler
+    │   ├── api/errors/                     WebExceptionHandler (framework errors), ApiProblems
     │   ├── api/dtos/                       CreateRequestDto, UpdateRequestDto,
     │   │                                   CreateResponseDto, GetResponseDto, GetPageResponseDto (unused), ApiKeyStatus
     │   └── facade/ApiKeyFacadeImpl         implements ApiKeyVerificationFacade via VerifyApiKeyUseCase
@@ -757,7 +759,7 @@ Database objects (schema `access`): `api_keys`, `api_key_permissions`, `outbox`.
 
 ```mermaid
 flowchart TB
-    presentation["presentation<br/>api/controllers, api/dtos, facade"]
+    presentation["presentation<br/>api/controllers, api/dtos, api/errors, facade"]
     infrastructure["infrastructure<br/>persistence, keyformat, config"]
     application["application<br/>usecase, events, model, transaction, interfaces"]
     domain["domain<br/>aggregates/apikey, events, exceptions, repositories"]

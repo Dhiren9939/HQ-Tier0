@@ -9,7 +9,7 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.exceptions.InvalidPermissionsException;
 import me.dhiren9939.backend.access.domain.exceptions.UpdateFailureCode;
-import me.dhiren9939.backend.web.errors.WebExceptionHandler;
+import me.dhiren9939.backend.access.presentation.api.errors.WebExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;

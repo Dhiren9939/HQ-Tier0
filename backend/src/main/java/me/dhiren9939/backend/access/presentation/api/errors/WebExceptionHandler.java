@@ -1,4 +1,4 @@
-package me.dhiren9939.backend.web.errors;
+package me.dhiren9939.backend.access.presentation.api.errors;
 
 import jakarta.validation.ConstraintViolation;
 import lombok.extern.slf4j.Slf4j;

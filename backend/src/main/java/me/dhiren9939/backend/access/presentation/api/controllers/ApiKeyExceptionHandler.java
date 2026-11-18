@@ -5,7 +5,7 @@ import me.dhiren9939.backend.common.access.VerificationFailureCode;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
 import me.dhiren9939.backend.access.domain.exceptions.InvalidPermissionsException;
-import me.dhiren9939.backend.web.errors.ApiProblems;
+import me.dhiren9939.backend.access.presentation.api.errors.ApiProblems;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
