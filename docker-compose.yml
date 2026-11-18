@@ -28,11 +28,16 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+      # Stream clients connect to the host the broker advertises, so advertise the one reachable from the host.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbitmq_stream advertised_host localhost"
     ports:
       - "5672:5672"
+      - "5552:5552"
       - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      # Enables the stream plugin (outbox relay) next to the management UI.
+      - ./docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
 
 volumes:
   maindb_data:

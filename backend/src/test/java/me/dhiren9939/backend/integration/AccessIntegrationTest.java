@@ -42,7 +42,7 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
 
     @BeforeEach
     void cleanDatabase() {
-        jdbc.execute("TRUNCATE access.outbox, access.api_key_permissions, access.api_keys");
+        jdbc.execute("TRUNCATE access.outbox, access.outbox_dead_letter, access.api_key_permissions, access.api_keys");
         clock.reset();
     }
 

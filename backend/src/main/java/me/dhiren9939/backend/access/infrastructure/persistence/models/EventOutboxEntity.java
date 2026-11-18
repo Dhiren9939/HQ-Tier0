@@ -67,6 +67,15 @@ public class EventOutboxEntity {
 
     private Instant expiresAt;
 
+    /** Publish attempts the broker refused for this row; transient outages do not count. */
+    @Builder.Default
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int attempts = 0;
+
+    /** Why the last refused attempt failed; null until one does. */
+    @Column(columnDefinition = "text")
+    private String lastError;
+
     /** Every integration event is a full snapshot of the key, so all of them map the same way. */
     public static EventOutboxEntity of(ApiKeyIntegrationEvent event) {
         return EventOutboxEntity.builder()

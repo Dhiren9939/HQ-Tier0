@@ -58,8 +58,10 @@ class SqlMigrationValidateIntegrationTest {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V2__drop_pending_changes.sql"));
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V3__remove_api_key_tombstones.sql"));
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V4__drop_outbox_change_columns.sql"));
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V5__outbox_relay.sql"));
         }
 
+        registry.add("access.outbox.relay.enabled", () -> "false");
         registry.add("spring.datasource.url", () -> url);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
