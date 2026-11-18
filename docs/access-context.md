@@ -720,7 +720,9 @@ me.dhiren9939.backend
 Database objects (schema `access`): `api_keys`, `api_key_permissions`, `outbox`. The hand-written reference SQL is
 `backend/src/main/resources/db.migration/access/V1__create_access_schema.sql` (schema creation),
 `V2__drop_pending_changes.sql` (drops the pending-change tables and columns the old confirm/reject handshake used) and
-`V3__remove_api_key_tombstones.sql` (drops `deleted_at`; deletes remove the row outright).
+`V3__remove_api_key_tombstones.sql` (drops `deleted_at`; deletes remove the row outright) and
+`V4__drop_outbox_change_columns.sql` (drops the unused `change_kind` and `failure_reason` columns left from the old
+`apiKey.change.*` events; `IF EXISTS` keeps it safe on fresh databases).
 
 ### 9. Where do I change X?
 
@@ -1222,7 +1224,7 @@ All of these run the real application against a throwaway Postgres 17. Each test
 | `ApiKeyAtomicityIntegrationTest` (3) | A database trigger refuses outbox rows for a key named `boom`, so the outbox write really fails. Then: a failed issue leaves no key or permission rows; a failed update leaves the key at its old revision; a failed delete leaves it active. This is the "key change and outbox row commit together or not at all" guarantee. |
 | `ApiKeyConcurrencyIntegrationTest` (5, one test repeated 5 times) | 8 threads update the same key at once. Changes apply immediately and in sequence: every writer either lands its change or loses the optimistic-lock race; event versions stay unique and strictly increasing; the revision matches the number of landed changes; the last event describes the key's final state. |
 | `ApiKeyHttpIntegrationTest` (7) | Full stack over MockMvc: create (active at once), read, patch (applied at once), delete, gone (all later operations are 404); the dismiss route no longer exists; 404 for unknown and foreign keys; 400 for a level a scope does not accept, unknown scope, unknown level and malformed body; 400 for a create without name or expiry (not a 500); 401 and 400 from verification failures through the test probe. |
-| `SqlMigrationValidateIntegrationTest` (4) | Applies the hand-written `V1__create_access_schema.sql`, `V2__drop_pending_changes.sql` and `V3__remove_api_key_tombstones.sql` to a fresh database, then boots with `ddl-auto=validate` so Hibernate refuses to start on any mismatch. Also checks every time column is `timestamp with time zone`, that an `Instant` round-trips unchanged under a different session time zone, and that a full key lifecycle runs on the hand-written tables. |
+| `SqlMigrationValidateIntegrationTest` (4) | Applies the hand-written `V1__create_access_schema.sql`, `V2__drop_pending_changes.sql`, `V3__remove_api_key_tombstones.sql` and `V4__drop_outbox_change_columns.sql` to a fresh database, then boots with `ddl-auto=validate` so Hibernate refuses to start on any mismatch. Also checks every time column is `timestamp with time zone`, that an `Instant` round-trips unchanged under a different session time zone, and that a full key lifecycle runs on the hand-written tables. |
 
 ### What the tests do NOT prove
 

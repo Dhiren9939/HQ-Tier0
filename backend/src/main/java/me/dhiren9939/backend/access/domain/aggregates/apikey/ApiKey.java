@@ -4,7 +4,6 @@ import com.github.f4b6a3.uuid.UuidCreator;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import me.dhiren9939.backend.access.domain.aggregates.apikey.AccessLevel;
 import me.dhiren9939.backend.access.domain.events.ApiKeyCreated;
 import me.dhiren9939.backend.access.domain.events.ApiKeyDeleted;
 import me.dhiren9939.backend.access.domain.events.ApiKeyEvent;

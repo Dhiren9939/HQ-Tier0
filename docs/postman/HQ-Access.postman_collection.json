@@ -1,14 +1,15 @@
 {
   "info": {
     "name": "HQ Access (API keys)",
-    "description": "User-facing API key endpoints and the internal confirm/reject endpoints the data plane calls. Run the requests in order: Create stores apiKeyId, then confirm revision 1, and so on. Every change takes a new revision, and a failed change also uses one for its compensating command, so set the `revision` variable to the revision you are answering (the pending one). userId comes from the URL until authentication exists.",
+    "description": "User-facing API key endpoints. Run the User requests in order: Create stores apiKeyId/accessId, then Get, rename, revoke a scope and Delete; once deleted, reads and changes return 404. Every change applies at once (HQ is the source of truth): there is no pending/confirm/reject handshake, no cancel and no dismiss. `status` is ACTIVE or EXPIRED; a deleted key is not returned at all. `userId` comes from the URL until authentication exists.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8080" },
     { "key": "userId", "value": "00000000-0000-0000-0000-000000000001" },
     { "key": "apiKeyId", "value": "" },
-    { "key": "revision", "value": "1" }
+    { "key": "accessId", "value": "" },
+    { "key": "accessSecret", "value": "" }
   ],
   "item": [
     {
@@ -25,10 +26,11 @@
                   "pm.test('201 Created', () => pm.response.to.have.status(201));",
                   "const body = pm.response.json();",
                   "pm.collectionVariables.set('apiKeyId', body.apiKeyId);",
-                  "pm.collectionVariables.set('revision', '1');",
-                  "pm.test('secret is returned once, creation is PENDING', () => {",
-                  "  pm.expect(body.accessSecret).to.be.a('string');",
-                  "  pm.expect(body.status).to.eql('CREATING');",
+                  "pm.collectionVariables.set('accessId', body.accessId);",
+                  "pm.collectionVariables.set('accessSecret', body.accessSecret);",
+                  "pm.test('ACTIVE at once; the secret is returned once', () => {",
+                  "  pm.expect(body.accessSecret).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.status).to.eql('ACTIVE');",
                   "});"
                 ]
               }
@@ -42,7 +44,7 @@
               "mode": "raw",
               "raw": "{\n  \"name\": \"deploy-key\",\n  \"expiry\": \"ONE_MONTH\",\n  \"permissions\": {\n    \"INGESTION\": \"WRITE\",\n    \"TENANT\": \"READ_WRITE\"\n  }\n}"
             },
-            "description": "expiry: ONE_DAY | ONE_MONTH | NEVER. Scopes: INGESTION (WRITE), TENANT and CHANNEL (READ, WRITE, READ_WRITE). A missing scope means NONE."
+            "description": "expiry: ONE_DAY | ONE_MONTH | NEVER. Scopes: INGESTION (WRITE), TENANT and CHANNEL (READ, WRITE, READ_WRITE). A missing scope means NONE. The key is ACTIVE immediately and its creation event is already in the outbox."
           }
         },
         {
@@ -54,10 +56,11 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.test('status is one of the public statuses, and every scope is listed', () => {",
+                  "pm.test('status is ACTIVE or EXPIRED, every scope is listed, no secret', () => {",
                   "  const b = pm.response.json();",
-                  "  pm.expect(['CREATING', 'CREATION_FAILED', 'ACTIVE', 'UPDATING', 'UPDATE_FAILED', 'DELETING', 'DELETE_FAILED', 'DELETED'].includes(b.status)).to.be.true;",
+                  "  pm.expect(['ACTIVE', 'EXPIRED']).to.include(b.status);",
                   "  pm.expect(Object.keys(b.permissions)).to.have.members(['INGESTION', 'TENANT', 'CHANNEL']);",
+                  "  pm.expect(b).to.not.have.property('accessSecret');",
                   "});"
                 ]
               }
@@ -78,8 +81,12 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.test('change is pending', () => pm.expect(pm.response.json().status).to.eql('UPDATING'));",
-                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
+                  "pm.test('applied at once', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.apiKeyName).to.eql('renamed-key');",
+                  "  pm.expect(b.status).to.eql('ACTIVE');",
+                  "  pm.expect(b.expiresAt).to.be.null;",
+                  "});"
                 ]
               }
             }
@@ -89,7 +96,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}",
             "body": { "mode": "raw", "raw": "{\n  \"name\": \"renamed-key\",\n  \"expiry\": \"NEVER\"\n}" },
-            "description": "Partial update. Only the fields you send change. Sets `revision` to the new pending revision on success, assuming the key was last confirmed at the previous one; adjust the variable if a failed change used a revision in between."
+            "description": "Partial update. Only the fields you send change; an update that changes nothing is a no-op (no revision bump, no event)."
           }
         },
         {
@@ -101,7 +108,11 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
+                  "pm.test('only TENANT was revoked', () => {",
+                  "  const p = pm.response.json().permissions;",
+                  "  pm.expect(p.TENANT).to.eql('NONE');",
+                  "  pm.expect(p.INGESTION).to.eql('WRITE');",
+                  "});"
                 ]
               }
             }
@@ -121,10 +132,7 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": [
-                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
-                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
-                ]
+                "exec": ["pm.test('204 No Content', () => pm.response.to.have.status(204));"]
               }
             }
           ],
@@ -132,92 +140,28 @@
             "method": "DELETE",
             "header": [],
             "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}",
-            "description": "Requests deletion. The key stays visible as CHANGE_PENDING until the data plane confirms, then becomes a DELETED tombstone until dismissed."
+            "description": "Deletes the key outright: the row is removed and the apiKey.projection.delete event is written to the outbox in the same transaction. There is no tombstone and nothing to dismiss; the Access ID can be issued again immediately."
           }
         },
         {
-          "name": "Cancel pending change",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}/cancel",
-            "description": "Withdraws the change that is still pending. It fails as CANCELLED_BY_USER and its compensating command goes out at once, using the next revision. Then dismiss it."
-          },
+          "name": "Get the deleted API key (404)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
-                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('the key is gone, not a tombstone', () => pm.expect(pm.response.json().code).to.eql('API_KEY_NOT_FOUND'));"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "Dismiss (acknowledge failure / remove finished key)",
+          ],
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}/dismiss",
-            "description": "Only acknowledges. Clears a failed update/delete, or removes a failed creation or a DELETED tombstone. Emits nothing."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": ["pm.test('204 No Content', () => pm.response.to.have.status(204));"]
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Data plane (internal)",
-      "item": [
-        {
-          "name": "Confirm change",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": ["pm.test('204 No Content', () => pm.response.to.have.status(204));"]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/internal/apikey/{{apiKeyId}}/changes/{{revision}}/confirm",
-            "body": { "mode": "raw", "raw": "{\n  \"issuer\": \"data-plane\"\n}" },
-            "description": "The data plane confirms the pending revision. 409 if that revision is not the pending one (stale, or the change already failed)."
-          }
-        },
-        {
-          "name": "Reject change",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
-                  "pm.collectionVariables.set('revision', String(Number(pm.collectionVariables.get('revision')) + 1));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/internal/apikey/{{apiKeyId}}/changes/{{revision}}/reject",
-            "body": { "mode": "raw", "raw": "{\n  \"issuer\": \"data-plane\",\n  \"reason\": \"REJECTED\"\n}" },
-            "description": "issuer (required) names the answering downstream service, like a JWT iss. reason: REJECTED (default when omitted), CONFIRM_TIMEOUT, OUTBOX_PUBLISH_FAILURE or CANCELLED_BY_USER. The compensating command takes the next revision, which the test script adds to `revision`."
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}",
+            "description": "Run after Delete: a deleted key is indistinguishable from one that never existed."
           }
         }
       ]
@@ -232,7 +176,10 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('400 Bad Request', () => pm.response.to.have.status(400));"]
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('machine code names the cause', () => pm.expect(pm.response.json().code).to.eql('INVALID_SCOPE_LEVEL'));"
+                ]
               }
             }
           ],
@@ -240,7 +187,54 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey",
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"bad\",\n  \"expiry\": \"NEVER\",\n  \"permissions\": { \"INGESTION\": \"READ_WRITE\" }\n}" }
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"bad\",\n  \"expiry\": \"NEVER\",\n  \"permissions\": { \"INGESTION\": \"READ_WRITE\" }\n}" },
+            "description": "INGESTION accepts only NONE and WRITE."
+          }
+        },
+        {
+          "name": "Create without a name (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('every field error is listed with its own code', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.code).to.eql('VALIDATION_FAILED');",
+                  "  pm.expect(b.errors.some(e => e.field === 'name' && e.code === 'NAME_REQUIRED')).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"\",\n  \"expiry\": \"NEVER\"\n}" }
+          }
+        },
+        {
+          "name": "Malformed JSON body (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('code is REQUEST_BODY_NOT_JSON', () => pm.expect(pm.response.json().code).to.eql('REQUEST_BODY_NOT_JSON'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey",
+            "body": { "mode": "raw", "raw": "{oops" }
           }
         },
         {
@@ -250,7 +244,10 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('404 Not Found', () => pm.response.to.have.status(404));"]
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code is API_KEY_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('API_KEY_NOT_FOUND'));"
+                ]
               }
             }
           ],
@@ -261,22 +258,42 @@
           }
         },
         {
-          "name": "Update while a change is pending (409)",
+          "name": "Update another user's key (404)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.test('409 Conflict when a change is pending or failed', () => pm.expect(pm.response.code).to.be.oneOf([200, 409]));"]
+                "exec": ["pm.test('404 Not Found', () => pm.response.to.have.status(404));"]
               }
             }
           ],
           "request": {
             "method": "PATCH",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}",
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"again\"\n}" },
-            "description": "Run right after an Update without confirming it: only one change may be pending, so this returns 409."
+            "url": "{{baseUrl}}/api/v1/user/00000000-0000-0000-0000-000000000099/apikey/{{apiKeyId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"stolen\"\n}" },
+            "description": "Another user's key looks exactly like a missing one."
+          }
+        },
+        {
+          "name": "Wrong method on the key (405)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('405 Method Not Allowed', () => pm.response.to.have.status(405));",
+                  "pm.test('code is METHOD_NOT_ALLOWED', () => pm.expect(pm.response.json().code).to.eql('METHOD_NOT_ALLOWED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/user/{{userId}}/apikey/{{apiKeyId}}"
           }
         }
       ]

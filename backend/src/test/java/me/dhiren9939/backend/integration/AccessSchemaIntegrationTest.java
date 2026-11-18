@@ -55,7 +55,8 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
                 where table_schema = 'access'
                   and (column_name in ('ingestion_permission', 'tenant_permission', 'channel_permission',
                                        'applied_version', 'issued_version', 'desired_version',
-                                       'pending_change_id', 'confirmed_revision', 'deleted_at'))
+                                       'pending_change_id', 'confirmed_revision', 'deleted_at',
+                                       'change_kind', 'failure_reason'))
                 """, String.class);
         assertThat(removed).isEmpty();
 
