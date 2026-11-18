@@ -1,21 +1,31 @@
 package me.dhiren9939.backend.access.application.usecase;
 
-import me.dhiren9939.backend.access.application.events.ApiKeyProjectionMapper;
+import me.dhiren9939.backend.access.application.events.ApiKeyIntegrationEventMapper;
+import me.dhiren9939.backend.access.application.events.DefaultApiKeyIntegrationEventMapper;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
-import me.dhiren9939.backend.common.access.events.outbound.ApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyIntegrationEvent;
 
 import java.util.*;
 
 /**
- * In-memory stand-in for {@link ApiKeys}. Like the real implementation it collects the projection commands a key
- * registered whenever it is saved or deleted, so tests can assert on what would reach the outbox.
+ * In-memory stand-in for {@link ApiKeys}. Like the real implementation it maps the events a key registered to
+ * integration events whenever it is saved or deleted, so tests can assert on what would reach the outbox.
  */
 public class InMemoryApiKeys implements ApiKeys {
     private final Map<UUID, ApiKey> store = new LinkedHashMap<>();
-    public final List<ApiKeyProjectionCommand> publishedEvents = new ArrayList<>();
+    private final ApiKeyIntegrationEventMapper integrationEventMapper;
+    public final List<ApiKeyIntegrationEvent> publishedEvents = new ArrayList<>();
     public int saves;
     public int deletes;
+
+    public InMemoryApiKeys() {
+        this(new DefaultApiKeyIntegrationEventMapper());
+    }
+
+    public InMemoryApiKeys(ApiKeyIntegrationEventMapper integrationEventMapper) {
+        this.integrationEventMapper = integrationEventMapper;
+    }
 
     /** Puts a key into the store as if it had been persisted earlier; its pending events are discarded. */
     public ApiKey existing(ApiKey key) {
@@ -58,7 +68,7 @@ public class InMemoryApiKeys implements ApiKeys {
 
     private void record(ApiKey key) {
         key.pullDomainEvents().stream()
-                .map(ApiKeyProjectionMapper::toProjectionCommand)
+                .map(integrationEventMapper::toIntegrationEvent)
                 .forEach(publishedEvents::add);
     }
 

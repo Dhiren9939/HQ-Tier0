@@ -1,9 +1,12 @@
 package me.dhiren9939.backend.access.infrastructure.persistence.repositories;
 
+import me.dhiren9939.backend.access.application.events.ApiKeyIntegrationEventMapper;
+import me.dhiren9939.backend.access.application.events.DefaultApiKeyIntegrationEventMapper;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyCreatedIntegrationEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-/** The repository implementation writes the aggregate's projection commands into the outbox itself, right after the key change. */
+/** The repository implementation writes the aggregate's integration events into the outbox itself, right after the key change. */
 @ExtendWith(MockitoExtension.class)
 class ApiKeysAdapterTest {
 
@@ -32,7 +35,7 @@ class ApiKeysAdapterTest {
 
     @BeforeEach
     void setUp() {
-        adapter = new ApiKeysAdapter(repository, outboxRepository);
+        adapter = new ApiKeysAdapter(repository, outboxRepository, new DefaultApiKeyIntegrationEventMapper());
     }
 
     private static ApiKey newKey() {
@@ -82,5 +85,24 @@ class ApiKeysAdapterTest {
 
         verify(repository).delete(key);
         verify(outboxRepository).save(any(EventOutboxEntity.class));
+    }
+
+    @Test
+    void theOutboxStoresWhatTheInjectedMapperProduces() {
+        // Swapping the mapper is how the event contents get encoded or encrypted before they reach the outbox.
+        ApiKeyIntegrationEventMapper encrypting = event -> {
+            ApiKeyCreatedIntegrationEvent plain =
+                    (ApiKeyCreatedIntegrationEvent) new DefaultApiKeyIntegrationEventMapper().toIntegrationEvent(event);
+            return plain.toBuilder().accessSecretHash("enc(" + plain.accessSecretHash() + ")").build();
+        };
+        ApiKeysAdapter withEncryption = new ApiKeysAdapter(repository, outboxRepository, encrypting);
+        ApiKey key = newKey();
+        when(repository.save(key)).thenReturn(key);
+
+        withEncryption.save(key);
+
+        ArgumentCaptor<EventOutboxEntity> row = ArgumentCaptor.forClass(EventOutboxEntity.class);
+        verify(outboxRepository).save(row.capture());
+        assertThat(row.getValue().getAccessSecretHash()).isEqualTo("enc(hash)");
     }
 }

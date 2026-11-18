@@ -5,7 +5,7 @@ import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.common.access.events.outbound.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyUpdatedIntegrationEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -41,7 +41,7 @@ class UpdateApiKeyHandlerTest {
         assertThat(view.apiKeyName()).isEqualTo("new-name");
         assertThat(apiKeys.saves).isEqualTo(1);
         assertThat(apiKeys.publishedEvents).hasSize(1);
-        UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
+        ApiKeyUpdatedIntegrationEvent event = (ApiKeyUpdatedIntegrationEvent) apiKeys.publishedEvents.getFirst();
         assertThat(event.version()).isEqualTo(2);
         assertThat(event.apiKeyName()).isEqualTo("new-name");
         assertThat(event.occurredAt()).isEqualTo(NOW);
@@ -54,7 +54,7 @@ class UpdateApiKeyHandlerTest {
 
         update(key, null, null, new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.WRITE)));
 
-        UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
+        ApiKeyUpdatedIntegrationEvent event = (ApiKeyUpdatedIntegrationEvent) apiKeys.publishedEvents.getFirst();
         assertThat(event.permissions()).isEqualTo(Map.of("INGESTION", "WRITE"));
     }
 
@@ -76,7 +76,7 @@ class UpdateApiKeyHandlerTest {
                 new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.WRITE, Scope.TENANT, AccessLevel.READ, Scope.CHANNEL, AccessLevel.READ_WRITE)));
 
         assertThat(apiKeys.publishedEvents).hasSize(1);
-        UpdateApiKeyProjectionCommand event = (UpdateApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
+        ApiKeyUpdatedIntegrationEvent event = (ApiKeyUpdatedIntegrationEvent) apiKeys.publishedEvents.getFirst();
         assertThat(event.apiKeyName()).isEqualTo("all-new");
         assertThat(key.getExpiresAt()).isNull();
         assertThat(event.version()).isEqualTo(2);

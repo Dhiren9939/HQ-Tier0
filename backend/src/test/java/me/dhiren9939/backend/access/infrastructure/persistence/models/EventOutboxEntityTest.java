@@ -1,9 +1,9 @@
 package me.dhiren9939.backend.access.infrastructure.persistence.models;
 
 
-import me.dhiren9939.backend.common.access.events.outbound.CreateApiKeyProjectionCommand;
-import me.dhiren9939.backend.common.access.events.outbound.DeleteApiKeyProjectionCommand;
-import me.dhiren9939.backend.common.access.events.outbound.UpdateApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyCreatedIntegrationEvent;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyDeletedIntegrationEvent;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyUpdatedIntegrationEvent;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -13,7 +13,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Pins down how projection commands map to outbox rows. */
+/** Pins down how integration events map to outbox rows. */
 class EventOutboxEntityTest {
 
     private static final Instant OCCURRED_AT = Instant.parse("2026-01-15T12:00:00Z");
@@ -29,7 +29,7 @@ class EventOutboxEntityTest {
 
     @Test
     void createdEventBecomesARowWithTheSecretHash() {
-        EventOutboxEntity row = EventOutboxEntity.of(CreateApiKeyProjectionCommand.builder()
+        EventOutboxEntity row = EventOutboxEntity.of(ApiKeyCreatedIntegrationEvent.builder()
                 .apiKeyName("test-key").apiKeyId(API_KEY_ID).version(1).occurredAt(OCCURRED_AT)
                 .userId(USER_ID).accessId("V1_acc").accessSecretHash("hashed_secret")
                 .permissions(PERMISSIONS).createdAt(CREATED_AT).build());
@@ -48,7 +48,7 @@ class EventOutboxEntityTest {
 
     @Test
     void updatedEventBecomesARowWithTheSecretHash() {
-        EventOutboxEntity row = EventOutboxEntity.of(UpdateApiKeyProjectionCommand.builder()
+        EventOutboxEntity row = EventOutboxEntity.of(ApiKeyUpdatedIntegrationEvent.builder()
                 .apiKeyName("renamed").apiKeyId(API_KEY_ID).version(2).occurredAt(OCCURRED_AT)
                 .userId(USER_ID).accessId("V1_acc").accessSecretHash("hashed_secret")
                 .permissions(PERMISSIONS).createdAt(CREATED_AT).build());
@@ -60,7 +60,7 @@ class EventOutboxEntityTest {
 
     @Test
     void deletedEventBecomesARowWithTheSecretHash() {
-        EventOutboxEntity row = EventOutboxEntity.of(DeleteApiKeyProjectionCommand.builder()
+        EventOutboxEntity row = EventOutboxEntity.of(ApiKeyDeletedIntegrationEvent.builder()
                 .apiKeyName("test-key").apiKeyId(API_KEY_ID).version(2).occurredAt(OCCURRED_AT)
                 .userId(USER_ID).accessId("V1_acc").accessSecretHash("hashed_secret")
                 .permissions(PERMISSIONS).createdAt(CREATED_AT).build());

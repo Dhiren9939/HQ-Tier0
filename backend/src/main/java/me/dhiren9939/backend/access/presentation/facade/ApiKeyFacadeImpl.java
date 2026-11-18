@@ -1,7 +1,7 @@
 package me.dhiren9939.backend.access.presentation.facade;
 
 import lombok.RequiredArgsConstructor;
-import me.dhiren9939.backend.access.application.events.ApiKeyProjectionMapper;
+import me.dhiren9939.backend.access.application.events.WirePermissions;
 import me.dhiren9939.backend.access.application.usecase.service.verify.ApiKeyVerificationFailure;
 import me.dhiren9939.backend.access.application.usecase.service.verify.VerifiedApiKey;
 import me.dhiren9939.backend.access.application.usecase.service.verify.VerifyApiKeyUseCase;
@@ -25,7 +25,7 @@ class ApiKeyFacadeImpl implements ApiKeyVerificationFacade {
                     verified.apiKeyId(),
                     verified.userId(),
                     verified.apiKeyName(),
-                    ApiKeyProjectionMapper.toWirePermissions(verified.permissions()),
+                    WirePermissions.of(verified.permissions()),
                     verified.createdAt(),
                     verified.expiresAt()));
         } catch (ApiKeyVerificationFailure failure) {

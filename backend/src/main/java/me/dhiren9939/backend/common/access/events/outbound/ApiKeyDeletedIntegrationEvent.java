@@ -9,12 +9,12 @@ import java.util.UUID;
 /**
  * Event emitted when an API key is deleted. Carries the key's full state as it was just before deletion.
  */
-@Builder
-public record DeleteApiKeyProjectionCommand(String apiKeyName, UUID apiKeyId, long version, Instant occurredAt, Instant emittedAt,
+@Builder(toBuilder = true)
+public record ApiKeyDeletedIntegrationEvent(String apiKeyName, UUID apiKeyId, long version, Instant occurredAt, Instant emittedAt,
                             UUID userId, String accessId,
                             String accessSecretHash,
                             Map<String, String> permissions,
-                            Instant createdAt, Instant expiresAt) implements ApiKeyProjectionCommand {
+                            Instant createdAt, Instant expiresAt) implements ApiKeyIntegrationEvent {
 
     public static final String EVENT_TYPE = "apiKey.projection.delete";
 

@@ -4,7 +4,7 @@ import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.common.access.events.outbound.DeleteApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyDeletedIntegrationEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +38,7 @@ class DeleteApiKeyHandlerTest {
         assertThat(apiKeys.contains(key.getApiKeyId())).as("the row is gone, not a tombstone").isFalse();
         assertThat(apiKeys.deletes).isEqualTo(1);
         assertThat(apiKeys.publishedEvents).hasSize(1);
-        DeleteApiKeyProjectionCommand event = (DeleteApiKeyProjectionCommand) apiKeys.publishedEvents.getFirst();
+        ApiKeyDeletedIntegrationEvent event = (ApiKeyDeletedIntegrationEvent) apiKeys.publishedEvents.getFirst();
         assertThat(event.version()).isEqualTo(2);
         assertThat(event.occurredAt()).isEqualTo(NOW);
         assertThat(event.emittedAt()).isNull();

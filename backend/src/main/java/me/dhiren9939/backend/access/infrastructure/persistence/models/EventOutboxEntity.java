@@ -2,7 +2,7 @@ package me.dhiren9939.backend.access.infrastructure.persistence.models;
 
 import jakarta.persistence.*;
 import lombok.*;
-import me.dhiren9939.backend.common.access.events.outbound.ApiKeyProjectionCommand;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyIntegrationEvent;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
@@ -10,7 +10,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * JPA representation of an outgoing API key projection command stored in the outbox.
+ * JPA representation of an outgoing API key integration event stored in the outbox. It stores the event's fields
+ * as the mapper produced them; any encoding or encryption happens in the mapper, before the row is built.
  */
 @Entity
 @Getter
@@ -66,8 +67,8 @@ public class EventOutboxEntity {
 
     private Instant expiresAt;
 
-    /** Every projection command is a full snapshot of the key, so all of them map the same way. */
-    public static EventOutboxEntity of(ApiKeyProjectionCommand event) {
+    /** Every integration event is a full snapshot of the key, so all of them map the same way. */
+    public static EventOutboxEntity of(ApiKeyIntegrationEvent event) {
         return EventOutboxEntity.builder()
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())

@@ -7,14 +7,14 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Event emitted when an API key is created. Carries the key's full state, like every projection command.
+ * Event emitted when an API key is created. Carries the key's full state, like every integration event.
  */
-@Builder
-public record CreateApiKeyProjectionCommand(String apiKeyName, UUID apiKeyId, long version, Instant occurredAt, Instant emittedAt,
+@Builder(toBuilder = true)
+public record ApiKeyCreatedIntegrationEvent(String apiKeyName, UUID apiKeyId, long version, Instant occurredAt, Instant emittedAt,
                             UUID userId, String accessId,
                             String accessSecretHash,
                             Map<String, String> permissions,
-                            Instant createdAt, Instant expiresAt) implements ApiKeyProjectionCommand {
+                            Instant createdAt, Instant expiresAt) implements ApiKeyIntegrationEvent {
 
     public static final String EVENT_TYPE = "apiKey.projection.create";
 
