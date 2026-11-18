@@ -63,26 +63,30 @@ class ApiKeyProjectionMapperTest {
 
     @Test
     void updatedEventBecomesUpdateCommand() {
-        ApiKeyUpdated event = new ApiKeyUpdated(NAME, KEY_ID, 2, OCCURRED_AT, USER_ID, ACCESS_ID, PERMISSIONS, CREATED_AT, EXPIRES_AT);
+        ApiKeyUpdated event = new ApiKeyUpdated(NAME, KEY_ID, 2, OCCURRED_AT, USER_ID, ACCESS_ID,
+                "hashed_secret", PERMISSIONS, CREATED_AT, EXPIRES_AT);
 
         UpdateApiKeyProjectionCommand command = (UpdateApiKeyProjectionCommand) ApiKeyProjectionMapper.toProjectionCommand(event);
 
         assertThat(command.eventType()).isEqualTo("apiKey.projection.update");
         assertThat(command.version()).isEqualTo(2);
         assertThat(command.emittedAt()).isNull();
+        assertThat(command.accessSecretHash()).as("every command is a full snapshot").isEqualTo("hashed_secret");
         assertThat(command.permissions()).containsExactlyEntriesOf(wirePermissions());
         assertThat(command.expiresAt()).isEqualTo(EXPIRES_AT);
     }
 
     @Test
     void deletedEventBecomesDeleteCommand() {
-        ApiKeyDeleted event = new ApiKeyDeleted(NAME, KEY_ID, 3, OCCURRED_AT, USER_ID, ACCESS_ID, PERMISSIONS, CREATED_AT, EXPIRES_AT);
+        ApiKeyDeleted event = new ApiKeyDeleted(NAME, KEY_ID, 3, OCCURRED_AT, USER_ID, ACCESS_ID,
+                "hashed_secret", PERMISSIONS, CREATED_AT, EXPIRES_AT);
 
         DeleteApiKeyProjectionCommand command = (DeleteApiKeyProjectionCommand) ApiKeyProjectionMapper.toProjectionCommand(event);
 
         assertThat(command.eventType()).isEqualTo("apiKey.projection.delete");
         assertThat(command.version()).isEqualTo(3);
         assertThat(command.emittedAt()).isNull();
+        assertThat(command.accessSecretHash()).as("every command is a full snapshot").isEqualTo("hashed_secret");
         assertThat(command.permissions()).containsExactlyEntriesOf(wirePermissions());
         assertThat(command.expiresAt()).isEqualTo(EXPIRES_AT);
     }

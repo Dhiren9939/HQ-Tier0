@@ -7,11 +7,12 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Event emitted when an API key is deleted.
+ * Event emitted when an API key is deleted. Carries the key's full state as it was just before deletion.
  */
 @Builder
 public record DeleteApiKeyProjectionCommand(String apiKeyName, UUID apiKeyId, long version, Instant occurredAt, Instant emittedAt,
                             UUID userId, String accessId,
+                            String accessSecretHash,
                             Map<String, String> permissions,
                             Instant createdAt, Instant expiresAt) implements ApiKeyProjectionCommand {
 

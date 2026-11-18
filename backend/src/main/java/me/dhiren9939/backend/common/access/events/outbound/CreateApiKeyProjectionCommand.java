@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Event emitted when an API key is created, including its persisted credential hash.
+ * Event emitted when an API key is created. Carries the key's full state, like every projection command.
  */
 @Builder
 public record CreateApiKeyProjectionCommand(String apiKeyName, UUID apiKeyId, long version, Instant occurredAt, Instant emittedAt,

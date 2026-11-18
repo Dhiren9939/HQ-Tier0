@@ -30,7 +30,7 @@ class ApiKeyProjectionCommandContractTest {
     void updatedPayload() {
         assertThat(componentNames(UpdateApiKeyProjectionCommand.class)).containsExactly(
                 "apiKeyName", "apiKeyId", "version", "occurredAt", "emittedAt", "userId", "accessId",
-                "permissions", "createdAt", "expiresAt");
+                "accessSecretHash", "permissions", "createdAt", "expiresAt");
         assertThat(UpdateApiKeyProjectionCommand.EVENT_TYPE).isEqualTo("apiKey.projection.update");
     }
 
@@ -38,8 +38,18 @@ class ApiKeyProjectionCommandContractTest {
     void deletedPayload() {
         assertThat(componentNames(DeleteApiKeyProjectionCommand.class)).containsExactly(
                 "apiKeyName", "apiKeyId", "version", "occurredAt", "emittedAt", "userId", "accessId",
-                "permissions", "createdAt", "expiresAt");
+                "accessSecretHash", "permissions", "createdAt", "expiresAt");
         assertThat(DeleteApiKeyProjectionCommand.EVENT_TYPE).isEqualTo("apiKey.projection.delete");
+    }
+
+    @Test
+    void everyCommandIsAFullSnapshotWithTheSameFields() {
+        // A consumer that missed earlier events rebuilds the key from the latest one alone.
+        List<String> create = componentNames(CreateApiKeyProjectionCommand.class);
+        assertThat(componentNames(UpdateApiKeyProjectionCommand.class)).isEqualTo(create);
+        assertThat(componentNames(DeleteApiKeyProjectionCommand.class)).isEqualTo(create);
+        assertThat(Arrays.stream(ApiKeyProjectionCommand.class.getMethods()).map(java.lang.reflect.Method::getName))
+                .contains("accessSecretHash");
     }
 
     @Test

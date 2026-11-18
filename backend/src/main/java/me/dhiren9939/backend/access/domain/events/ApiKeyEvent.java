@@ -25,6 +25,9 @@ public sealed interface ApiKeyEvent permits ApiKeyCreated, ApiKeyUpdated, ApiKey
 
     String accessId();
 
+    /** Every event is a full snapshot of the key, so the hash travels with all of them. */
+    String accessSecretHash();
+
     String apiKeyName();
 
     Permissions permissions();

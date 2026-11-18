@@ -183,12 +183,12 @@ public class ApiKey {
 
     private ApiKeyUpdated updatedEvent(Instant now) {
         return new ApiKeyUpdated(apiKeyName, apiKeyId, revision, now,
-                userId, accessId, getPermissions(), createdAt, expiresAt);
+                userId, accessId, accessSecretHash, getPermissions(), createdAt, expiresAt);
     }
 
     private ApiKeyDeleted deletedEvent(Instant now) {
         return new ApiKeyDeleted(apiKeyName, apiKeyId, revision, now,
-                userId, accessId, getPermissions(), createdAt, expiresAt);
+                userId, accessId, accessSecretHash, getPermissions(), createdAt, expiresAt);
     }
 
     private void assignPermissions(Permissions permissions) {

@@ -47,26 +47,26 @@ class EventOutboxEntityTest {
     }
 
     @Test
-    void updatedEventBecomesARowWithoutTheSecretHash() {
+    void updatedEventBecomesARowWithTheSecretHash() {
         EventOutboxEntity row = EventOutboxEntity.of(UpdateApiKeyProjectionCommand.builder()
                 .apiKeyName("renamed").apiKeyId(API_KEY_ID).version(2).occurredAt(OCCURRED_AT)
-                .userId(USER_ID).accessId("V1_acc")
+                .userId(USER_ID).accessId("V1_acc").accessSecretHash("hashed_secret")
                 .permissions(PERMISSIONS).createdAt(CREATED_AT).build());
         assertThat(row.getEventType()).isEqualTo("apiKey.projection.update");
         assertThat(row.getVersion()).isEqualTo(2);
         assertThat(row.getApiKeyName()).isEqualTo("renamed");
-        assertThat(row.getAccessSecretHash()).isNull();
+        assertThat(row.getAccessSecretHash()).isEqualTo("hashed_secret");
     }
 
     @Test
-    void deletedEventBecomesARowWithoutTheSecretHash() {
+    void deletedEventBecomesARowWithTheSecretHash() {
         EventOutboxEntity row = EventOutboxEntity.of(DeleteApiKeyProjectionCommand.builder()
                 .apiKeyName("test-key").apiKeyId(API_KEY_ID).version(2).occurredAt(OCCURRED_AT)
-                .userId(USER_ID).accessId("V1_acc")
+                .userId(USER_ID).accessId("V1_acc").accessSecretHash("hashed_secret")
                 .permissions(PERMISSIONS).createdAt(CREATED_AT).build());
         assertThat(row.getEventType()).isEqualTo("apiKey.projection.delete");
         assertThat(row.getVersion()).isEqualTo(2);
-        assertThat(row.getAccessSecretHash()).isNull();
+        assertThat(row.getAccessSecretHash()).isEqualTo("hashed_secret");
     }
 
     @Test

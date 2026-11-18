@@ -159,7 +159,8 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(updatedRow.version()).isEqualTo(2);
         assertThat(updatedRow.apiKeyName()).isEqualTo("renamed");
         assertThat(updatedRow.permissions()).isEqualTo("{\"INGESTION\":\"WRITE\",\"TENANT\":\"READ\"}");
-        assertThat(updatedRow.accessSecretHash()).as("only apiKey.projection.create carries the hash").isNull();
+        assertThat(updatedRow.accessSecretHash()).as("every event is a full snapshot, hash included")
+                .isNotNull().isEqualTo(rows.get(0).accessSecretHash());
         assertThat(updatedRow.emittedAt()).isNull();
 
         assertThat(jdbc.queryForObject("select revision from access.api_keys", Long.class)).isEqualTo(2);
@@ -219,6 +220,8 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(rows.get(1).eventType()).isEqualTo("apiKey.projection.delete");
         assertThat(rows.get(1).version()).isEqualTo(2);
         assertThat(rows.get(1).permissions()).isEqualTo("{\"INGESTION\":\"WRITE\"}");
+        assertThat(rows.get(1).accessSecretHash()).as("the delete event is a full snapshot, hash included")
+                .isNotNull().isEqualTo(rows.get(0).accessSecretHash());
         assertThat(count("access.api_keys")).isZero();
         assertThat(count("access.api_key_permissions")).isZero();
         assertThat(count("access.api_keys where access_id = '" + accessId + "'"))

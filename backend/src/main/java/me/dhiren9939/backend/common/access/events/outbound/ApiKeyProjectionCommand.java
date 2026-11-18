@@ -28,6 +28,12 @@ public sealed interface ApiKeyProjectionCommand permits CreateApiKeyProjectionCo
 
     String accessId();
 
+    /**
+     * The key's secret hash. Every command is a full snapshot of the key at {@link #version()}, so the data plane
+     * can rebuild its projection from the latest command alone, whatever it missed before.
+     */
+    String accessSecretHash();
+
     String apiKeyName();
 
     /** Scope name to level name, e.g. {@code {"INGESTION":"WRITE"}}; an absent scope means no access. */

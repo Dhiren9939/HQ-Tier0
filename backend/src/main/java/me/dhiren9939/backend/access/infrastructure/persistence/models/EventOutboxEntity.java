@@ -3,9 +3,6 @@ package me.dhiren9939.backend.access.infrastructure.persistence.models;
 import jakarta.persistence.*;
 import lombok.*;
 import me.dhiren9939.backend.common.access.events.outbound.ApiKeyProjectionCommand;
-import me.dhiren9939.backend.common.access.events.outbound.CreateApiKeyProjectionCommand;
-import me.dhiren9939.backend.common.access.events.outbound.DeleteApiKeyProjectionCommand;
-import me.dhiren9939.backend.common.access.events.outbound.UpdateApiKeyProjectionCommand;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
@@ -50,8 +47,9 @@ public class EventOutboxEntity {
     @Column(nullable = false, length = 256)
     private String accessId;
 
-    @Builder.Default
-    private String accessSecretHash = null;
+    /** Filled on every row written since events became full snapshots; older rows may hold null. */
+    @Column(length = 256)
+    private String accessSecretHash;
 
     @Column(nullable = false, length = 256)
     private String apiKeyName;
@@ -68,15 +66,8 @@ public class EventOutboxEntity {
 
     private Instant expiresAt;
 
+    /** Every projection command is a full snapshot of the key, so all of them map the same way. */
     public static EventOutboxEntity of(ApiKeyProjectionCommand event) {
-        return switch (event) {
-            case CreateApiKeyProjectionCommand created -> from(created);
-            case UpdateApiKeyProjectionCommand updated -> from(updated);
-            case DeleteApiKeyProjectionCommand deleted -> from(deleted);
-        };
-    }
-
-    static EventOutboxEntity from(CreateApiKeyProjectionCommand event) {
         return EventOutboxEntity.builder()
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())
@@ -86,38 +77,6 @@ public class EventOutboxEntity {
                 .userId(event.userId())
                 .accessId(event.accessId())
                 .accessSecretHash(event.accessSecretHash())
-                .apiKeyName(event.apiKeyName())
-                .permissions(permissionsJson(event.permissions()))
-                .createdAt(event.createdAt())
-                .expiresAt(event.expiresAt())
-                .build();
-    }
-
-    static EventOutboxEntity from(UpdateApiKeyProjectionCommand event) {
-        return EventOutboxEntity.builder()
-                .eventType(event.eventType())
-                .apiKeyId(event.apiKeyId())
-                .version(event.version())
-                .occurredAt(event.occurredAt())
-                .emittedAt(event.emittedAt())
-                .userId(event.userId())
-                .accessId(event.accessId())
-                .apiKeyName(event.apiKeyName())
-                .permissions(permissionsJson(event.permissions()))
-                .createdAt(event.createdAt())
-                .expiresAt(event.expiresAt())
-                .build();
-    }
-
-    static EventOutboxEntity from(DeleteApiKeyProjectionCommand event) {
-        return EventOutboxEntity.builder()
-                .eventType(event.eventType())
-                .apiKeyId(event.apiKeyId())
-                .version(event.version())
-                .occurredAt(event.occurredAt())
-                .emittedAt(event.emittedAt())
-                .userId(event.userId())
-                .accessId(event.accessId())
                 .apiKeyName(event.apiKeyName())
                 .permissions(permissionsJson(event.permissions()))
                 .createdAt(event.createdAt())

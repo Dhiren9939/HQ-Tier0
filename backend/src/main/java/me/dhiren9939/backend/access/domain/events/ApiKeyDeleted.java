@@ -10,6 +10,7 @@ import java.util.UUID;
  */
 public record ApiKeyDeleted(String apiKeyName, UUID apiKeyId, long version, Instant occurredAt,
                             UUID userId, String accessId,
+                            String accessSecretHash,
                             Permissions permissions,
                             Instant createdAt, Instant expiresAt) implements ApiKeyEvent {
 

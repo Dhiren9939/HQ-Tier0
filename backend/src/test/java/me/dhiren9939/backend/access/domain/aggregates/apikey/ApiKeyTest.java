@@ -389,6 +389,7 @@ class ApiKeyTest {
             assertThat(updated.permissions().levelOf(Scope.INGESTION)).isEqualTo(AccessLevel.WRITE);
             assertThat(updated.createdAt()).isEqualTo(NOW);
             assertThat(updated.expiresAt()).isNull();
+            assertThat(updated.accessSecretHash()).as("full snapshot").isEqualTo(key.getAccessSecretHash());
         }
 
         @Test
@@ -414,6 +415,7 @@ class ApiKeyTest {
             assertThat(deleted.apiKeyName()).isEqualTo(NAME);
             assertThat(deleted.accessId()).isEqualTo("V1_acc");
             assertThat(deleted.expiresAt()).isEqualTo(ONE_MONTH_FROM_NOW);
+            assertThat(deleted.accessSecretHash()).as("full snapshot").isEqualTo(key.getAccessSecretHash());
         }
     }
 }
