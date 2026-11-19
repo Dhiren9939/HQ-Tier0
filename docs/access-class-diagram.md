@@ -253,19 +253,35 @@ classDiagram
     note for OutboxRelay "TX starts here\nTransactionTemplate per batch\nRabbitMQ is NOT in the TX"
     note for ApiKeysAdapter "no TX of its own\njoins the caller's TX"
 
-    classDef presentation fill:#dbeafe,stroke:#1d4ed8,color:#000
-    classDef application fill:#dcfce7,stroke:#15803d,color:#000
-    classDef domain fill:#fef9c3,stroke:#a16207,color:#000
-    classDef common fill:#f3e8ff,stroke:#7e22ce,color:#000
-    classDef infrastructure fill:#e5e7eb,stroke:#374151,color:#000
-    classDef external fill:#ffffff,stroke:#6b7280,color:#000,stroke-dasharray:4 3
-
-    cssClass "Controller,ErrorHandlers,Facade" presentation
-    cssClass "OwnerUseCases,VerifyUseCase,RetriedTransaction,ApiKeyView,EventMapper,WirePermissions,Ports" application
-    cssClass "Aggregate,ValueTypes,DomainEvents,ApiKeys,DomainExceptions" domain
-    cssClass "VerificationContract,IntegrationEvents" common
-    cssClass "ApiKeysAdapter,Outbox,OutboxStore,OutboxRelay,ProjectionStream,KeyFormats,Config" infrastructure
-    cssClass "HttpClient,OtherModules,Postgres,RabbitMQ" external
+    %% layer colours (per-node style works in Mermaid 10 and 11)
+    style Controller fill:#dbeafe,stroke:#1d4ed8,color:#000
+    style ErrorHandlers fill:#dbeafe,stroke:#1d4ed8,color:#000
+    style Facade fill:#dbeafe,stroke:#1d4ed8,color:#000
+    style OwnerUseCases fill:#dcfce7,stroke:#15803d,color:#000
+    style VerifyUseCase fill:#dcfce7,stroke:#15803d,color:#000
+    style RetriedTransaction fill:#dcfce7,stroke:#15803d,color:#000
+    style ApiKeyView fill:#dcfce7,stroke:#15803d,color:#000
+    style EventMapper fill:#dcfce7,stroke:#15803d,color:#000
+    style WirePermissions fill:#dcfce7,stroke:#15803d,color:#000
+    style Ports fill:#dcfce7,stroke:#15803d,color:#000
+    style Aggregate fill:#fef9c3,stroke:#a16207,color:#000
+    style ValueTypes fill:#fef9c3,stroke:#a16207,color:#000
+    style DomainEvents fill:#fef9c3,stroke:#a16207,color:#000
+    style ApiKeys fill:#fef9c3,stroke:#a16207,color:#000
+    style DomainExceptions fill:#fef9c3,stroke:#a16207,color:#000
+    style VerificationContract fill:#f3e8ff,stroke:#7e22ce,color:#000
+    style IntegrationEvents fill:#f3e8ff,stroke:#7e22ce,color:#000
+    style ApiKeysAdapter fill:#e5e7eb,stroke:#374151,color:#000
+    style Outbox fill:#e5e7eb,stroke:#374151,color:#000
+    style OutboxStore fill:#e5e7eb,stroke:#374151,color:#000
+    style OutboxRelay fill:#e5e7eb,stroke:#374151,color:#000
+    style ProjectionStream fill:#e5e7eb,stroke:#374151,color:#000
+    style KeyFormats fill:#e5e7eb,stroke:#374151,color:#000
+    style Config fill:#e5e7eb,stroke:#374151,color:#000
+    style HttpClient fill:#ffffff,stroke:#6b7280,color:#000,stroke-dasharray:4 3
+    style OtherModules fill:#ffffff,stroke:#6b7280,color:#000,stroke-dasharray:4 3
+    style Postgres fill:#ffffff,stroke:#6b7280,color:#000,stroke-dasharray:4 3
+    style RabbitMQ fill:#ffffff,stroke:#6b7280,color:#000,stroke-dasharray:4 3
 ```
 
 How to read it:
@@ -647,7 +663,7 @@ classDiagram
     }
     class CommonApiKeyView["ApiKeyView (common)"] {
         <<record>>
-        permissions Map~String,String~
+        permissions Map of scope to level
     }
     class VerifyApiKeyUseCase {
         <<interface>>
