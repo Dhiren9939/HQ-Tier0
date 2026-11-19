@@ -48,8 +48,8 @@ public class OutboxRelay {
     private final Clock clock;
     private final TransactionOperations transactions;
 
-    /** Set when the relay stops; it stays set until the application restarts. */
-    private volatile Halt halt;
+    /** Present once the relay stops; it stays present until the application restarts. */
+    private volatile Optional<Halt> halt = Optional.empty();
 
     public OutboxRelay(OutboxStore store, ProjectionStream stream, IntegrationEventSerializer serializer,
                        OutboxRelayProperties properties, Clock clock, TransactionOperations transactions) {
@@ -76,29 +76,29 @@ public class OutboxRelay {
 
     /** Present once the relay has halted. */
     public Optional<Halt> halt() {
-        return Optional.ofNullable(halt);
+        return halt;
     }
 
     @Scheduled(fixedDelayString = "${access.outbox.relay.poll-interval:PT2S}")
     public void tick() {
-        if (halt != null)
+        if (halt.isPresent())
             return;
 
-        Halt stuck = transactions.execute(this::publishOneBatch);
-        if (stuck != null) {
+        Optional<Halt> stuck = transactions.execute(this::publishOneBatch); // returns what publishOneBatch returns
+        stuck.ifPresent(reason -> {
             halt = stuck;
-            logHalt(stuck);
-        }
+            logHalt(reason);
+        });
     }
 
-    /** One batch, in the tick's transaction. Returns the halt when an event could not be published, otherwise null. */
-    private Halt publishOneBatch(TransactionStatus transaction) {
+    /** One batch, in the tick's transaction. Returns the halt when an event could not be published. */
+    private Optional<Halt> publishOneBatch(TransactionStatus transaction) {
         if (!declareStream())
-            return null;
+            return Optional.empty();
 
         List<EventOutboxEntity> rows = store.lockPending(properties.batchSize());
         if (rows.isEmpty())
-            return null;
+            return Optional.empty();
 
         // PostgreSQL keeps microseconds; truncating keeps the emitted_at column and the JSON emittedAt identical.
         Instant emittedAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
@@ -109,7 +109,7 @@ public class OutboxRelay {
             try {
                 batch.add(new Outgoing(row, serializer.withEmittedAt(row.getPayload(), emittedAt)));
             } catch (IntegrationEventSerializationException e) {
-                return haltOnBrokenPayload(row, e.getMessage(), rows.size());
+                return Optional.of(haltOnBrokenPayload(row, e.getMessage(), rows.size()));
             }
         }
 
@@ -122,15 +122,21 @@ public class OutboxRelay {
         }
 
         // 3. Stamp what was confirmed. Any refusal halts the relay.
-        List<Answer> confirmed = answers.stream().filter(Answer::confirmed).toList();
-        List<Answer> refused = answers.stream().filter(answer -> !answer.confirmed()).toList();
+        List<Confirmed> confirmed = new ArrayList<>();
+        List<Refused> refused = new ArrayList<>();
+        for (Answer answer : answers) {
+            switch (answer) {
+                case Confirmed yes -> confirmed.add(yes);
+                case Refused no -> refused.add(no);
+            }
+        }
 
-        confirmed.forEach(answer -> store.markEmitted(answer.row(), emittedAt, answer.body()));
+        confirmed.forEach(yes -> store.markEmitted(yes.message().row(), emittedAt, yes.message().body()));
         if (refused.isEmpty()) {
             log.debug("Outbox relay published {} event(s)", confirmed.size());
-            return null;
+            return Optional.empty();
         }
-        return haltOnRefusals(refused, confirmed.size(), batch.size());
+        return Optional.of(haltOnRefusals(refused, confirmed.size(), batch.size()));
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -176,12 +182,12 @@ public class OutboxRelay {
     private static Answer answerFor(Outgoing message, CompletableFuture<Boolean> confirm) throws BrokerUnavailable {
         if (!confirm.isCompletedExceptionally()) {
             boolean confirmed = Boolean.TRUE.equals(confirm.resultNow());
-            return confirmed ? Answer.confirmed(message) : Answer.refused(message, "the broker did not confirm the message");
+            return confirmed ? new Confirmed(message) : new Refused(message, "the broker did not confirm the message");
         }
 
         Throwable error = confirm.exceptionNow();
         if (error instanceof ProjectionRefusedException)
-            return Answer.refused(message, error.getMessage());
+            return new Refused(message, error.getMessage());
         if (error instanceof ProjectionUnavailableException)
             throw new BrokerUnavailable(error.getMessage());
         throw new BrokerUnavailable(error.toString());
@@ -212,11 +218,11 @@ public class OutboxRelay {
     // ---------------------------------------------------------------------------------------------------------------
 
     /** Broker unavailable: rolls the tick back, so nothing is marked or counted and the next tick sends it all again. */
-    private Halt cancelBatch(TransactionStatus transaction, int events, String reason) {
+    private Optional<Halt> cancelBatch(TransactionStatus transaction, int events, String reason) {
         transaction.setRollbackOnly();
         log.warn("Outbox relay: broker unavailable, cancelled this batch of {} event(s); nothing was marked published "
                 + "or counted, retrying in {}. Reason: {}", events, readable(properties.pollInterval()), reason);
-        return null;
+        return Optional.empty();
     }
 
     /** A stored payload breaks the contract: nothing was sent; only that row records the error. */
@@ -227,10 +233,10 @@ public class OutboxRelay {
     }
 
     /** The broker refused messages: each refused row records why; the relay halts at the first one. */
-    private Halt haltOnRefusals(List<Answer> refused, int confirmed, int batchSize) {
-        refused.forEach(answer -> store.recordFailure(answer.row(), answer.refusal()));
-        Answer first = refused.getFirst();
-        return Halt.at(first.row(), first.refusal(), confirmed + " of " + batchSize
+    private Halt haltOnRefusals(List<Refused> refused, int confirmed, int batchSize) {
+        refused.forEach(no -> store.recordFailure(no.message().row(), no.reason()));
+        Refused first = refused.getFirst();
+        return Halt.at(first.message().row(), first.reason(), confirmed + " of " + batchSize
                 + " event(s) in this tick were confirmed and marked published; " + refused.size() + " refused");
     }
 
@@ -259,30 +265,22 @@ public class OutboxRelay {
     private record Outgoing(EventOutboxEntity row, String body) {
     }
 
-    /** The broker's answer about one message: confirmed, or refused with the reason. */
-    private record Answer(Outgoing message, boolean confirmed, String refusal) {
+    /** The broker's answer about one message. */
+    private sealed interface Answer permits Confirmed, Refused {
+    }
 
-        static Answer confirmed(Outgoing message) {
-            return new Answer(message, true, null);
-        }
+    /** The broker confirmed the message. */
+    private record Confirmed(Outgoing message) implements Answer {
+    }
 
-        static Answer refused(Outgoing message, String refusal) {
-            return new Answer(message, false, refusal);
-        }
-
-        EventOutboxEntity row() {
-            return message.row();
-        }
-
-        String body() {
-            return message.body();
-        }
+    /** The broker will not take the message, and why. */
+    private record Refused(Outgoing message, String reason) implements Answer {
     }
 
     /** The broker or the connection could not take the batch right now. Cancels the batch; never halts. */
     private static final class BrokerUnavailable extends Exception {
         BrokerUnavailable(String reason) {
-            super(reason, null, false, false);
+            super(reason);
         }
     }
 }

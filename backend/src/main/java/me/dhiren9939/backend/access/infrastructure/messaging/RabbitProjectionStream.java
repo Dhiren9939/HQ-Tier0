@@ -11,6 +11,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -70,19 +71,14 @@ public class RabbitProjectionStream implements ProjectionStream {
     public CompletableFuture<Boolean> send(EventOutboxEntity row, String body) {
         Message message = ProjectionMessages.toMessage(row, body, template.messageBuilder());
 
-        CompletableFuture<Boolean> answer = new CompletableFuture<>();
-        template.send(message).whenComplete((confirmed, error) -> {
-            if (error == null)
-                answer.complete(Boolean.TRUE.equals(confirmed));
-            else
-                answer.completeExceptionally(classify(error));
-        });
-        return answer;
+        return template.send(message)
+                .thenApply(Boolean.TRUE::equals)                                       // confirmed?
+                .exceptionallyCompose(error -> CompletableFuture.failedFuture(classify(error))); // outage or refusal
     }
 
     /** Turns a failed send into an outage (try again next tick) or a refusal (halt). */
     static RuntimeException classify(Throwable error) {
-        Throwable cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
+        Throwable cause = unwrap(error);
 
         if (!(cause instanceof StreamSendException failedSend))
             return new ProjectionUnavailableException("the message could not be sent: " + cause, cause);
@@ -94,10 +90,18 @@ public class RabbitProjectionStream implements ProjectionStream {
         return new ProjectionRefusedException("the broker refused the message: " + describe(code), failedSend);
     }
 
+    /** The real failure inside a {@link CompletionException}, which futures wrap around it. */
+    private static Throwable unwrap(Throwable error) {
+        if (error instanceof CompletionException wrapped)
+            return Optional.ofNullable(wrapped.getCause()).orElse(error);
+        return error;
+    }
+
     /** {@code ACCESS_REFUSED (16)}, or {@code code 999} for a code the stream client does not name. */
     static String describe(short code) {
-        String name = CODE_NAMES.get(code);
-        return name == null ? "code " + code : name + " (" + code + ")";
+        return Optional.ofNullable(CODE_NAMES.get(code))
+                .map(name -> name + " (" + code + ")")
+                .orElse("code " + code);
     }
 
     /** Reads every {@code CODE_*} and {@code RESPONSE_CODE_*} constant of the stream client, without the prefix. */
