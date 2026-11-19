@@ -90,10 +90,6 @@ classDiagram
         <<application>>
         +toIntegrationEvent(ApiKeyEvent) ApiKeyIntegrationEvent
     }
-    class WirePermissions {
-        <<application>>
-        +of(Permissions)$ Map
-    }
     class Ports {
         <<application>>
         +IssueCredentialPort.issue() IssuedCredential
@@ -145,27 +141,31 @@ classDiagram
     }
     class Outbox["Outbox"] {
         <<infrastructure>>
-        +EventOutboxEntity.of(ApiKeyIntegrationEvent)$ EventOutboxEntity
+        +EventOutboxEntity.of(eventId, event, payload)$ EventOutboxEntity
         +EventOutboxRepository.save(row)
         +EventOutboxRepository.lockPending(limit)
     }
-    class OutboxStore["OutboxStore + dead letters"] {
+    class Serializer["IntegrationEventSerializer"] {
         <<infrastructure>>
+        +toJson(eventId, event) String
+        +withEmittedAt(payload, at) String
+    }
+    class OutboxStore {
+        <<infrastructure>>
+        +append(event) void
         +lockPending(limit) List
-        +markEmitted(rows, at) void
-        +recordFailure(row, error) int
-        +deadLetter(row, error, at) void
+        +markEmitted(row, at, body) void
+        +recordFailure(row, error) void
     }
-    class OutboxRelay["OutboxRelay + IntegrationEventMessages"] {
+    class OutboxRelay["OutboxRelay + OutboxRelayHealth"] {
         <<infrastructure>>
-        +poll() void every 1s
-        +toMessage(row, emittedAt, builder) Message
+        +tick() void every 2s
+        +halt() Optional~Halt~
     }
-    class ProjectionStream {
+    class ProjectionStream["ProjectionStream + RabbitProjectionStream"] {
         <<infrastructure>>
         +declare() void
-        +messageBuilder() MessageBuilder
-        +send(Message) CompletableFuture~Boolean~
+        +send(row, body) CompletableFuture~Boolean~
     }
     class KeyFormats["Key formats"] {
         <<infrastructure>>
@@ -195,7 +195,7 @@ classDiagram
     Controller --> OwnerUseCases : handle(command or query)
     Controller --> ValueTypes : Permissions.of() / new PermissionChanges() / levelOf()
     Facade --> VerifyUseCase : handle(query)
-    Facade --> WirePermissions : of(permissions)
+    Facade --> ValueTypes : asMap()
     ErrorHandlers --> DomainExceptions : code() / getMessage()
     ErrorHandlers --> VerifyUseCase : ApiKeyVerificationFailure.code()
 
@@ -226,31 +226,32 @@ classDiagram
     ApiKeysAdapter --> Postgres : JPA save / delete / find
     ApiKeysAdapter --> Aggregate : pullDomainEvents()
     ApiKeysAdapter --> EventMapper : toIntegrationEvent(event)
-    ApiKeysAdapter --> Outbox : EventOutboxEntity.of() / save(row)
+    ApiKeysAdapter --> OutboxStore : append(integrationEvent)
+    OutboxStore --> Serializer : toJson(eventId, event)
+    OutboxStore --> Outbox : EventOutboxEntity.of() / save(row)
     EventMapper --> DomainEvents : getters
-    EventMapper --> WirePermissions : of(permissions)
+    EventMapper --> ValueTypes : asMap()
     EventMapper ..> IntegrationEvents : builder().build()
-    WirePermissions --> ValueTypes : asMap()
     Outbox --> Postgres : access.outbox
 
     %% key formats and wiring
     KeyFormats ..|> Ports
     Config --> KeyFormats : keyFormat()
     Config ..> Ports : creates IssueCredentialPort
-    Config ..> OutboxRelay : creates relay / stream / messages
+    Config ..> OutboxRelay : creates relay / stream / health
 
     %% relay out of the outbox
-    OutboxRelay --> OutboxStore : lockPending() / markEmitted() / recordFailure() / deadLetter()
-    OutboxRelay --> ProjectionStream : declare() / messageBuilder() / send(message)
-    OutboxStore --> Outbox : lockPending(limit) / delete(row) / setters
-    OutboxStore --> Postgres : access.outbox_dead_letter
+    OutboxRelay --> OutboxStore : lockPending() / markEmitted() / recordFailure()
+    OutboxRelay --> Serializer : withEmittedAt(payload, at)
+    OutboxRelay --> ProjectionStream : declare() / send(row, body)
+    OutboxStore --> Outbox : lockPending(limit) / setters
     ProjectionStream --> RabbitMQ : super stream, routed by apiKeyId
 
     %% transaction boundaries
     note for OwnerUseCases "TX starts here\nIssue: @Transactional\nGet: @Transactional(readOnly)\nUpdate, Delete: via RetriedTransaction"
     note for RetriedTransaction "TX starts here\nREQUIRES_NEW per attempt\nretried on optimistic-lock conflict"
     note for VerifyUseCase "TX starts here\n@Transactional(readOnly)"
-    note for OutboxRelay "TX starts here\nTransactionTemplate per batch\nRabbitMQ is NOT in the TX"
+    note for OutboxRelay "TX starts here\nTransactionTemplate per tick\nRabbitMQ is NOT in the TX"
     note for ApiKeysAdapter "no TX of its own\njoins the caller's TX"
 
     %% layer colours (per-node style works in Mermaid 10 and 11)
@@ -262,7 +263,6 @@ classDiagram
     style RetriedTransaction fill:#dcfce7,stroke:#15803d,color:#000
     style ApiKeyView fill:#dcfce7,stroke:#15803d,color:#000
     style EventMapper fill:#dcfce7,stroke:#15803d,color:#000
-    style WirePermissions fill:#dcfce7,stroke:#15803d,color:#000
     style Ports fill:#dcfce7,stroke:#15803d,color:#000
     style Aggregate fill:#fef9c3,stroke:#a16207,color:#000
     style ValueTypes fill:#fef9c3,stroke:#a16207,color:#000
@@ -273,6 +273,7 @@ classDiagram
     style IntegrationEvents fill:#f3e8ff,stroke:#7e22ce,color:#000
     style ApiKeysAdapter fill:#e5e7eb,stroke:#374151,color:#000
     style Outbox fill:#e5e7eb,stroke:#374151,color:#000
+    style Serializer fill:#e5e7eb,stroke:#374151,color:#000
     style OutboxStore fill:#e5e7eb,stroke:#374151,color:#000
     style OutboxRelay fill:#e5e7eb,stroke:#374151,color:#000
     style ProjectionStream fill:#e5e7eb,stroke:#374151,color:#000
@@ -303,7 +304,6 @@ How to read it:
 | RetriedTransaction | `RetriedTransaction`, `OptimisticLockRetry` | Opens a new transaction for each attempt and retries when another writer changed the key first. |
 | ApiKeyView | `application/model/ApiKeyView` | The secret-free read model that the owner use cases return. |
 | Event mapper | `ApiKeyIntegrationEventMapper`, `DefaultApiKeyIntegrationEventMapper` | Maps a domain event to an integration event. This is where to encode or encrypt fields. |
-| WirePermissions | `WirePermissions` | Permissions as a `{"SCOPE":"LEVEL"}` map, shared by the integration events and the facade. |
 | Ports | `IssueCredentialPort`, `CredentialVerifier` | What the use cases need from infrastructure, apart from storage. |
 | ApiKey aggregate | `ApiKey` | Every business rule. A change applies at once, bumps the revision and registers an event. |
 | Value types | `Permissions`, `PermissionChanges`, `ApiKeyChanges`, `Scope`, `AccessLevel`, `Lifetime`, `ApiKeyState`, `IssuedCredential` | Immutable pieces of the aggregate. |
@@ -312,11 +312,12 @@ How to read it:
 | Domain exceptions | `ApiKeyNotFoundException`, `ApiKeyUpdateFailure`, `UpdateFailureCode`, `InvalidPermissionsException` | The error handlers map these to 404 / 409 / 400. |
 | Verification contract | `ApiKeyVerificationFacade`, `VerifyApiKeyQuery`, `ApiKeyVerifyResult`, `common.access.ApiKeyView`, `VerificationFailureCode` | What other modules call, and what they get back. |
 | Integration events | `ApiKeyIntegrationEvent` (sealed), `ApiKeyCreated/Updated/DeletedIntegrationEvent` | The published event contract (`apiKey.projection.*`). Checked when created (`IntegrationEventRules`) with the same rules, plus `INGESTION` only allows `WRITE`; `IntegrationEventSerializer` then validates the whole JSON (exact keys, canonical UUIDs and instants, only `expiresAt` nullable) before it is stored and again before it is published. |
-| ApiKeysAdapter | `ApiKeysAdapter`, `JpaApiKeyRepository` | Implements `ApiKeys` and writes outbox rows after each save or delete. |
+| ApiKeysAdapter | `ApiKeysAdapter`, `JpaApiKeyRepository` | Implements `ApiKeys`. After each save or delete it maps the key's events and hands each one to `OutboxStore.append`. |
 | Outbox | `EventOutboxEntity`, `EventOutboxRepository` | The `access.outbox` table. |
-| OutboxStore | `OutboxStore`, `DeadLetterEntity`, `DeadLetterRepository` | What the relay may do with rows: lock them, stamp them as emitted, count failures and dead-letter them. |
-| OutboxRelay | `OutboxRelay`, `IntegrationEventMessages`, `OutboxRelayProperties`, `UnpublishableEventException` | Polls the outbox, publishes, waits for confirms and backs off on failure. |
-| ProjectionStream | `ProjectionStream`, `RabbitProjectionStream` | The super stream, routed by `apiKeyId`. |
+| OutboxStore | `OutboxStore` | The outbox operations. `append` serializes the event and inserts the row in the caller's transaction. For the relay: lock pending rows, stamp a row as emitted with the body that was sent, record why a row could not be published. |
+| IntegrationEventSerializer | `IntegrationEventSerializer`, `IntegrationEventSerializationException` | Writes the event as the JSON body and checks it against the whole contract, before it is stored (`toJson`) and again before it is published (`withEmittedAt`). |
+| OutboxRelay | `OutboxRelay`, `OutboxRelayHealth`, `OutboxRelayProperties` | Every 2 seconds publishes up to 100 pending rows with publisher confirms. Cancels the batch on a broker outage; halts (health DOWN) on a refused or unpublishable row. Never retries. |
+| ProjectionStream | `ProjectionStream`, `RabbitProjectionStream`, `ProjectionMessages`, `ProjectionRefusedException` | The super stream, routed by `apiKeyId`. Builds the message and tells a broker refusal from an outage. |
 | Key formats | `CredentialIssuer`, `V1CredentialIssuer`, `V1CredentialVerifier`, `Sha256SecretHasher`, `SortableEncoder` | Generates and checks credentials. |
 | Config | `ApiKeyConfig`, `OutboxRelayConfig`, `BackendApplication` | Wiring: the clock, the current key format and the relay. |
 
@@ -326,12 +327,12 @@ The diagram shows who calls whom. This table shows the order of those calls for 
 
 | Operation | Call sequence |
 |---|---|
-| **Issue** (`POST`) | Controller → `IssueApiKeyUseCase.handle()` (one `@Transactional`) → `IssueCredentialPort.issue()` (Key formats: V1 issuer, SHA-256 hash) → `Lifetime.expiryFrom(now)` → `ApiKey.issue()` (registers `ApiKeyCreated`) → `ApiKeys.save()` → ApiKeysAdapter: JPA save, `pullDomainEvents()`, `toIntegrationEvent()`, `EventOutboxEntity.of()`, outbox `save()` → `ApiKeyView.of()` → `IssuedApiKeyResult` (the only time the secret is returned) |
+| **Issue** (`POST`) | Controller → `IssueApiKeyUseCase.handle()` (one `@Transactional`) → `IssueCredentialPort.issue()` (Key formats: V1 issuer, SHA-256 hash) → `Lifetime.expiryFrom(now)` → `ApiKey.issue()` (registers `ApiKeyCreated`) → `ApiKeys.save()` → ApiKeysAdapter: JPA save, `pullDomainEvents()`, `toIntegrationEvent()`, `OutboxStore.append()` (`IntegrationEventSerializer.toJson()`, `EventOutboxEntity.of()`, `save()`) → `ApiKeyView.of()` → `IssuedApiKeyResult` (the only time the secret is returned) |
 | **Get** (`GET`) | Controller → `GetApiKeyUseCase.handle()` (read-only transaction) → `ApiKeys.requireOwned()` → `ApiKey.isOwnedBy()` → `ApiKeyView.of()` → `ApiKey.state(now)` |
 | **Update** (`PATCH`) | Controller → `UpdateApiKeyUseCase.handle()` → `RetriedTransaction.execute()` (new transaction per attempt, up to 2 retries) → `ApiKeys.requireOwned()` → `ApiKey.update(changes, now)` → `PermissionChanges.applyTo()` / `Lifetime.expiryFrom()`. If something changed: registers `ApiKeyUpdated` → `ApiKeys.save()` → same outbox write as Issue. Then `ApiKeyView.of()` |
 | **Delete** (`DELETE`) | Controller → `DeleteApiKeyUseCase.handle()` → `RetriedTransaction.execute()` → `ApiKeys.requireOwned()` → `ApiKey.delete(now)` (registers `ApiKeyDeleted`) → `ApiKeys.delete()` → ApiKeysAdapter: JPA delete, then the same outbox write |
-| **Verify** (other module) | `ApiKeyVerificationFacade.verifyApiKey()` → ApiKeyFacadeImpl → `VerifyApiKeyUseCase.handle()` → `ParsedApiKey.parse()` → `CredentialVerifier.supports(format)` → `ApiKeys.findByAccessId()` → `CredentialVerifier.matches(secret, hash)` → `ApiKey.canAuthenticate(now)` → `VerifiedApiKey` → facade: `WirePermissions.of()` → `Success`. Any `ApiKeyVerificationFailure` → `Failure(code, message)` |
-| **Relay** (scheduled) | `OutboxRelay.poll()` (one transaction) → `OutboxStore.lockPending(batchSize)` → `ProjectionStream.declare()` → per row: `IntegrationEventMessages.toMessage()` → `ProjectionStream.send()` → wait for confirms → `markEmitted()` for confirmed rows / `recordFailure()` for refused rows / `deadLetter()` for unserialisable rows or rows at `maxAttempts`. If the broker is unavailable, the batch is dropped and the relay backs off |
+| **Verify** (other module) | `ApiKeyVerificationFacade.verifyApiKey()` → ApiKeyFacadeImpl → `VerifyApiKeyUseCase.handle()` → `ParsedApiKey.parse()` → `CredentialVerifier.supports(format)` → `ApiKeys.findByAccessId()` → `CredentialVerifier.matches(secret, hash)` → `ApiKey.canAuthenticate(now)` → `VerifiedApiKey` → facade: permissions as a scope-to-level map → `Success`. Any `ApiKeyVerificationFailure` → `Failure(code, message)` |
+| **Relay** (scheduled) | `OutboxRelay.tick()` (skipped while halted; one transaction) → `ProjectionStream.declare()` → `OutboxStore.lockPending(100)` → per row: `IntegrationEventSerializer.withEmittedAt(payload, at)` → `ProjectionStream.send(row, body)` for all → wait for every confirm against one 5 s deadline → `markEmitted(row, at, body)` for confirmed rows. An outage rolls the tick back; a refused or unpublishable row gets `recordFailure()` and the relay halts |
 | **Errors** | Exceptions propagate to `ApiKeyExceptionHandler`: `ApiKeyNotFoundException` → 404, `ApiKeyUpdateFailure` → 409, `InvalidPermissionsException` → 400, `ApiKeyVerificationFailure` → 400/401. Anything else goes to `WebExceptionHandler`, and all of them go through `ApiProblems.of()` |
 
 ## Transaction scopes
@@ -345,7 +346,7 @@ Only the four places marked "TX starts here" in the component diagram open a tra
 | Update | `RetriedTransaction.execute` (`TransactionTemplate`) | REQUIRES_NEW, one per attempt | `requireOwned()`, `ApiKey.update()`, update the key + insert the outbox row if anything changed, build the view | Up to 2 retries (3 attempts) on `ObjectOptimisticLockingFailureException`, then `ApiKeyUpdateFailure` (409) |
 | Delete | `RetriedTransaction.execute` (`TransactionTemplate`) | REQUIRES_NEW, one per attempt | `requireOwned()`, `ApiKey.delete()`, delete the key + insert the outbox row | Same as Update |
 | Verify | `VerifyApiKeyHandler.handle` (`@Transactional(readOnly = true)`) | REQUIRED, read-only | Parse, `findByAccessId()`, `matches()`, `canAuthenticate()` | No. The facade maps the result after the transaction has closed |
-| Relay | `OutboxRelay.poll` through `TransactionOperations.execute` | REQUIRED, one per batch | Lock pending rows (`FOR UPDATE SKIP LOCKED`), publish, wait for confirms, then stamp, count failures or dead-letter | No retry in the transaction. On a failure the relay backs off and tries again on a later poll |
+| Relay | `OutboxRelay.tick` through `TransactionOperations.execute` | REQUIRED, one per tick | Lock pending rows (`FOR UPDATE SKIP LOCKED`), publish, wait for confirms, then stamp confirmed rows and record failures | Never. An outage rolls back and the next tick polls the same rows; a refusal halts the relay until restart |
 
 ### Issue: one transaction
 
@@ -423,14 +424,15 @@ sequenceDiagram
     end
 ```
 
-### Relay: one transaction per batch, with RabbitMQ outside it
+### Relay: one transaction per tick, with RabbitMQ outside it
 
-The relay holds row locks while it publishes and waits for confirms (up to `confirmTimeout`, 10 seconds by default). `SKIP LOCKED` lets another instance's relay take other rows in the meantime. RabbitMQ is not part of the transaction, so delivery is at-least-once:
+The relay holds row locks while it publishes and waits for confirms (one deadline for the whole batch, `confirmTimeout`, 5 seconds by default). `SKIP LOCKED` lets another instance's relay take other rows in the meantime. RabbitMQ is not part of the transaction, so delivery is at-least-once:
 
 - If the publish succeeds but the commit fails, the rows stay pending and are sent again.
-- When a batch is dropped, the transaction still commits. No row is marked emitted, but rows that were dead-lettered earlier in the same batch stay dead-lettered.
+- On an outage (the stream cannot be declared, a send fails, the deadline passes, a confirm fails for a connection reason) the transaction rolls back: nothing is stamped or counted, and messages already confirmed in that tick are sent again by the next one.
+- On a refusal or an unpublishable payload the transaction commits the stamps of the confirmed rows and the error on the failing row, then the relay halts. Nothing is retried.
 
-Consumers deduplicate by `apiKeyId` + `version`.
+Consumers keep the highest `version` per key and can dedupe on `eventId`.
 
 ```mermaid
 sequenceDiagram
@@ -438,35 +440,38 @@ sequenceDiagram
     participant S as Scheduler
     participant R as OutboxRelay
     participant O as OutboxStore
-    participant G as IntegrationEventMessages
+    participant J as IntegrationEventSerializer
     participant P as ProjectionStream
     participant DB as Postgres
     participant MQ as RabbitMQ
 
-    S->>R: poll() every poll-interval
-    Note right of R: skipped while backing off
+    S->>R: tick() every poll-interval (2s, fixed delay)
+    Note right of R: returns at once while halted
     rect rgba(234, 179, 8, 0.18)
-        Note over R,DB: TX: TransactionTemplate (REQUIRED), one per batch
-        R->>O: lockPending(batchSize)
-        O->>DB: SELECT ... FOR UPDATE SKIP LOCKED
+        Note over R,DB: TX: TransactionTemplate (REQUIRED), one per tick
         R->>P: declare()
-        loop each row
-            R->>G: toMessage(row, now, builder)
-            alt cannot serialise
-                R->>O: deadLetter(row, error, now)
-                O->>DB: insert dead letter, delete outbox row
-            else ok
-                R->>P: send(message)
-                P--)MQ: publish (not in the DB TX)
-            end
+        P--)MQ: create super stream if missing
+        R->>O: lockPending(100)
+        O->>DB: SELECT ... ORDER BY occurred_at, change_version FOR UPDATE SKIP LOCKED
+        loop each row, in order
+            R->>J: withEmittedAt(payload, at)
+            Note right of J: a broken payload stops the loop:<br/>that row halts the relay
         end
+        R->>P: send(row, body) for every built row
+        P--)MQ: publish (not in the DB TX)
         MQ--)P: publish confirms
-        R->>O: markEmitted(confirmed, now)
-        R->>O: recordFailure(row, error) for refused rows
-        R->>O: deadLetter(row, error, now) once attempts reach maxAttempts
-        Note over R,DB: COMMIT: emitted_at, attempts, dead letters
+        Note over R,P: one 5s deadline for all confirms
+        alt outage (no answer, deadline passed)
+            Note over R,DB: ROLLBACK: nothing stamped or counted
+        else all confirmed
+            R->>O: markEmitted(row, at, body)
+            Note over R,DB: COMMIT
+        else refused or unpublishable
+            R->>O: markEmitted(row, at, body) for confirmed rows
+            R->>O: recordFailure(row, error) for the failing rows
+            Note over R,DB: COMMIT, then HALT (health DOWN until restart)
+        end
     end
-    Note right of R: Outcome DROPPED (broker down, confirm timeout)<br/>→ commit with nothing marked emitted → back off
 ```
 
 ## Class-level detail
@@ -588,7 +593,7 @@ classDiagram
 
 ### Saving a key writes its events to the outbox
 
-Diagram 1 stops at the `ApiKeys` port. `ApiKeysAdapter` implements that port. When it saves or deletes a key, it also drains the key's domain events, maps each one to the published integration event, and inserts a row into the outbox. All of this happens in the caller's transaction.
+Diagram 1 stops at the `ApiKeys` port. `ApiKeysAdapter` implements that port. When it saves or deletes a key, it also drains the key's domain events, maps each one to the published integration event and hands it to `OutboxStore.append`, which serializes it (checking it against the contract) and inserts the row. All of this happens in the caller's transaction, so a serialization failure rolls the key change back.
 
 ```mermaid
 classDiagram
@@ -616,16 +621,19 @@ classDiagram
         +toIntegrationEvent(ApiKeyEvent) ApiKeyIntegrationEvent
     }
     class DefaultApiKeyIntegrationEventMapper
-    class WirePermissions {
-        +of(Permissions)$ Map
-    }
     class ApiKeyIntegrationEvent {
         <<common contract>>
         Created / Updated / Deleted
     }
+    class OutboxStore {
+        +append(ApiKeyIntegrationEvent) void
+    }
+    class IntegrationEventSerializer {
+        +toJson(eventId, event) String
+    }
     class EventOutboxEntity {
         <<entity>>
-        +of(ApiKeyIntegrationEvent)$ EventOutboxEntity
+        +of(eventId, event, payload)$ EventOutboxEntity
     }
     class EventOutboxRepository {
         <<interface>>
@@ -635,11 +643,12 @@ classDiagram
     ApiKeysAdapter --> JpaApiKeyRepository : findById() / findByAccessId() / save() / delete()
     ApiKeysAdapter --> ApiKey : pullDomainEvents()
     ApiKeysAdapter --> ApiKeyIntegrationEventMapper : toIntegrationEvent(event)
-    ApiKeysAdapter --> EventOutboxEntity : of(integrationEvent)
-    ApiKeysAdapter --> EventOutboxRepository : save(row)
+    ApiKeysAdapter --> OutboxStore : append(integrationEvent)
+    OutboxStore --> IntegrationEventSerializer : toJson(eventId, event)
+    OutboxStore --> EventOutboxEntity : of(eventId, event, payload)
+    OutboxStore --> EventOutboxRepository : save(row)
 
     DefaultApiKeyIntegrationEventMapper ..|> ApiKeyIntegrationEventMapper
-    DefaultApiKeyIntegrationEventMapper --> WirePermissions : of(permissions)
     DefaultApiKeyIntegrationEventMapper ..> ApiKeyIntegrationEvent : builds
 ```
 
@@ -695,13 +704,9 @@ classDiagram
         +expired()$
         +code() VerificationFailureCode
     }
-    class WirePermissions {
-        +of(Permissions)$ Map
-    }
 
     ApiKeyFacadeImpl ..|> ApiKeyVerificationFacade
     ApiKeyFacadeImpl --> VerifyApiKeyUseCase : handle(query)
-    ApiKeyFacadeImpl --> WirePermissions : of(permissions)
     ApiKeyFacadeImpl ..> ApiKeyVerifyResult : Success / Failure
     ApiKeyFacadeImpl ..> CommonApiKeyView : creates
     ApiKeyFacadeImpl --> ApiKeyVerificationFailure : code() / getMessage()
@@ -777,16 +782,25 @@ classDiagram
 
 ## 4. Outbox relay
 
-Diagram 1 shows how rows get into the outbox. This diagram shows how they get out. Every `poll-interval` (1 second by default), `OutboxRelay.poll()` runs one batch in its own transaction. It locks pending rows with `FOR UPDATE SKIP LOCKED`, sends them to the `apikey.projections` super stream (partitioned by `apiKeyId`), and waits for publish confirms. Then it marks confirmed rows as emitted, counts refused rows as failed attempts, and moves a row to the dead-letter table when it can't be serialised or has reached `maxAttempts`. `OutboxRelayConfig` wires these beans.
+Diagram 1 shows how rows get into the outbox. This diagram shows how they get out. Every `poll-interval` (2 seconds, fixed delay), `OutboxRelay.tick()` runs one batch in its own transaction. It declares the `apikey.projections` super stream, locks up to 100 pending rows with `FOR UPDATE SKIP LOCKED`, builds each body with `IntegrationEventSerializer.withEmittedAt` (one `emittedAt` per tick, truncated to microseconds so the column and the JSON match), sends them all (partitioned by `apiKeyId`) and waits for the publish confirms against one deadline for the whole batch. Then it stamps confirmed rows with the exact body that was sent. An outage rolls the tick back; a refused or unpublishable row is recorded on the row and halts the relay until restart. `OutboxRelayConfig` wires these beans.
 
 ```mermaid
 classDiagram
     direction TB
 
     class OutboxRelay {
-        +poll() void
-        -relayBatch() Outcome
-        -backOff() void
+        +tick() void
+        +halt() Optional~Halt~
+        -relayBatch(status) Halt
+    }
+    class Halt {
+        <<record>>
+        eventId
+        eventType
+        error
+    }
+    class OutboxRelayHealth {
+        +health() Health
     }
     class TransactionOperations {
         <<spring>>
@@ -794,21 +808,24 @@ classDiagram
     }
     class OutboxStore {
         +lockPending(limit) List~EventOutboxEntity~
-        +markEmitted(rows, at) void
-        +recordFailure(row, error) int
-        +deadLetter(row, error, at) void
+        +markEmitted(row, at, body) void
+        +recordFailure(row, error) void
     }
-    class IntegrationEventMessages {
-        +toMessage(row, emittedAt, MessageBuilder) Message
-        ~body(row, emittedAt) byte[]
+    class IntegrationEventSerializer {
+        +withEmittedAt(payload, at) String
     }
     class ProjectionStream {
         <<interface>>
         +declare() void
-        +messageBuilder() MessageBuilder
-        +send(Message) CompletableFuture~Boolean~
+        +send(row, body) CompletableFuture~Boolean~
     }
     class RabbitProjectionStream
+    class ProjectionMessages {
+        +toMessage(row, body, MessageBuilder)$ Message
+    }
+    class ProjectionRefusedException {
+        <<exception>>
+    }
     class RabbitStreamTemplate {
         <<spring amqp>>
     }
@@ -819,46 +836,45 @@ classDiagram
         <<interface>>
         +lockPending(limit) List~EventOutboxEntity~
     }
-    class DeadLetterRepository {
-        <<interface>>
-    }
     class EventOutboxEntity {
         <<entity>>
-    }
-    class DeadLetterEntity {
-        <<entity>>
-        +of(EventOutboxEntity, deadAt)$ DeadLetterEntity
-    }
-    class UnpublishableEventException {
-        <<exception>>
+        +emitted(at, body) void
     }
     class OutboxRelayProperties {
         <<record>>
+        streamName
+        partitions
         batchSize
+        pollInterval
         confirmTimeout
-        maxAttempts
-        backoffBase
-        backoffMax
     }
 
     OutboxRelay --> TransactionOperations : execute(relayBatch)
-    OutboxRelay --> OutboxStore : lockPending() / markEmitted() / recordFailure() / deadLetter()
-    OutboxRelay --> ProjectionStream : declare() / messageBuilder() / send(message)
-    OutboxRelay --> IntegrationEventMessages : toMessage(row, now, builder)
-    OutboxRelay --> OutboxRelayProperties : batchSize() / maxAttempts() / backoff...()
+    OutboxRelay --> OutboxStore : lockPending() / markEmitted() / recordFailure()
+    OutboxRelay --> IntegrationEventSerializer : withEmittedAt(payload, at)
+    OutboxRelay --> ProjectionStream : declare() / send(row, body)
+    OutboxRelay --> OutboxRelayProperties : batchSize() / confirmTimeout()
+    OutboxRelay ..> Halt : creates on refusal
+    OutboxRelayHealth --> OutboxRelay : halt()
 
-    OutboxStore --> EventOutboxRepository : lockPending(limit) / delete(row)
-    OutboxStore --> EventOutboxEntity : setEmittedAt() / setAttempts() / setLastError()
-    OutboxStore --> DeadLetterEntity : of(row, at)
-    OutboxStore --> DeadLetterRepository : save(deadLetter)
-
-    IntegrationEventMessages --> EventOutboxEntity : getters
-    IntegrationEventMessages ..> UnpublishableEventException : throws
+    OutboxStore --> EventOutboxRepository : lockPending(limit)
+    OutboxStore --> EventOutboxEntity : emitted(at, body) / setAttempts() / setLastError()
 
     RabbitProjectionStream ..|> ProjectionStream
     RabbitProjectionStream --> Environment : streamCreator().superStream().create()
+    RabbitProjectionStream --> ProjectionMessages : toMessage(row, body, builder)
     RabbitProjectionStream --> RabbitStreamTemplate : messageBuilder() / send(message)
+    RabbitProjectionStream ..> ProjectionRefusedException : broker answered with an error code
 ```
+
+How a send ends, as `RabbitProjectionStream` reports it to the relay:
+
+| Template answer | Port answer | Relay does |
+|---|---|---|
+| confirmed | `true` | stamps the row |
+| `StreamSendException` with a client or connection code (producer closed or unavailable, confirm timeout, enqueue failed, stream not available or missing) | exceptional | outage: rolls the tick back, repolls next tick |
+| `StreamSendException` with any other code | exceptional, `ProjectionRefusedException` | refusal: records the error on the row and halts |
+| any other exception, or no answer before the deadline | exceptional / timeout | outage |
 
 ## 5. Domain model
 
@@ -1029,4 +1045,4 @@ classDiagram
 
 ## What is not reusable across contexts
 
-The outbox relay, `OutboxStore` and the outbox tables belong to Access alone: they read `access.outbox` and publish to `apikey.projections`. When Subscriptions needs to publish events, copy the pattern (an outbox row written in the same transaction, a relay with publisher confirms, a dead-letter table), not the classes.
+The outbox relay, `OutboxStore` and the outbox tables belong to Access alone: they read `access.outbox` and publish to `apikey.projections`. When Subscriptions needs to publish events, copy the pattern (an outbox row written in the same transaction, a strict serializer in front of it, a relay with publisher confirms that halts on a row it cannot publish), not the classes.
