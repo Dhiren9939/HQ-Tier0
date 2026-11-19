@@ -236,15 +236,16 @@ class OutboxRelayTest {
     }
 
     @Test
-    void anUnpublishableRowHaltsAfterTheRowsBeforeItAreSent() {
+    void anUnpublishableRowDropsTheBatchAndHaltsWithoutSendingAnything() {
         EventOutboxEntity first = row(1), broken = row(2), after = row(3);
         broken.emitted(null, "{\"not\":\"the contract\"}");
 
         OutboxRelay relay = relay();
         relay.tick();
 
-        assertThat(stream.sentRows).containsExactly(first);
-        assertThat(first.getEmittedAt()).isEqualTo(NOW);
+        assertThat(stream.sentRows).as("nothing is sent").isEmpty();
+        assertThat(transactions.last.isRollbackOnly()).as("the error on the row is committed").isFalse();
+        assertUntouched(first);
         assertThat(broken.getAttempts()).isEqualTo(1);
         assertThat(broken.getLastError()).startsWith("Unpublishable");
         assertUntouched(after);

@@ -332,7 +332,7 @@ The diagram shows who calls whom. This table shows the order of those calls for 
 | **Update** (`PATCH`) | Controller → `UpdateApiKeyUseCase.handle()` → `RetriedTransaction.execute()` (new transaction per attempt, up to 2 retries) → `ApiKeys.requireOwned()` → `ApiKey.update(changes, now)` → `PermissionChanges.applyTo()` / `Lifetime.expiryFrom()`. If something changed: registers `ApiKeyUpdated` → `ApiKeys.save()` → same outbox write as Issue. Then `ApiKeyView.of()` |
 | **Delete** (`DELETE`) | Controller → `DeleteApiKeyUseCase.handle()` → `RetriedTransaction.execute()` → `ApiKeys.requireOwned()` → `ApiKey.delete(now)` (registers `ApiKeyDeleted`) → `ApiKeys.delete()` → ApiKeysAdapter: JPA delete, then the same outbox write |
 | **Verify** (other module) | `ApiKeyVerificationFacade.verifyApiKey()` → ApiKeyFacadeImpl → `VerifyApiKeyUseCase.handle()` → `ParsedApiKey.parse()` → `CredentialVerifier.supports(format)` → `ApiKeys.findByAccessId()` → `CredentialVerifier.matches(secret, hash)` → `ApiKey.canAuthenticate(now)` → `VerifiedApiKey` → facade: permissions as a scope-to-level map → `Success`. Any `ApiKeyVerificationFailure` → `Failure(code, message)` |
-| **Relay** (scheduled) | `OutboxRelay.tick()` (skipped while halted; one transaction) → `ProjectionStream.declare()` → `OutboxStore.lockPending(100)` → per row: `IntegrationEventSerializer.withEmittedAt(payload, at)` → `ProjectionStream.send(row, body)` for all → wait for every confirm against one 5 s deadline → `markEmitted(row, at, body)` for confirmed rows. An outage rolls the tick back; a refused or unpublishable row gets `recordFailure()` and the relay halts |
+| **Relay** (scheduled) | `OutboxRelay.tick()` (skipped while halted; one transaction) → `ProjectionStream.declare()` → `OutboxStore.lockPending(100)` → per row: `IntegrationEventSerializer.withEmittedAt(payload, at)` → `ProjectionStream.send(row, body)` for all → wait for every confirm against one 5 s deadline → `markEmitted(row, at, body)` for confirmed rows. An outage rolls the tick back; a refused row gets `recordFailure()` and the relay halts. An unpublishable row gets `recordFailure()` before anything is sent, and the relay halts |
 | **Errors** | Exceptions propagate to `ApiKeyExceptionHandler`: `ApiKeyNotFoundException` → 404, `ApiKeyUpdateFailure` → 409, `InvalidPermissionsException` → 400, `ApiKeyVerificationFailure` → 400/401. Anything else goes to `WebExceptionHandler`, and all of them go through `ApiProblems.of()` |
 
 ## Transaction scopes
@@ -430,7 +430,8 @@ The relay holds row locks while it publishes and waits for confirms (one deadlin
 
 - If the publish succeeds but the commit fails, the rows stay pending and are sent again.
 - On an outage (the stream cannot be declared, a send fails, the deadline passes, a confirm fails for a connection reason) the transaction rolls back: nothing is stamped or counted, and messages already confirmed in that tick are sent again by the next one.
-- On a refusal or an unpublishable payload the transaction commits the stamps of the confirmed rows and the error on the failing row, then the relay halts. Nothing is retried.
+- On an unpublishable payload (found while building the bodies) the batch is dropped before anything is sent: the transaction commits only the error on that row, then the relay halts.
+- On a refusal the transaction commits the stamps of the confirmed rows and the error on the refused rows, then the relay halts. Nothing is retried.
 
 Consumers keep the highest `version` per key and can dedupe on `eventId`.
 
@@ -455,7 +456,10 @@ sequenceDiagram
         O->>DB: SELECT ... ORDER BY occurred_at, change_version FOR UPDATE SKIP LOCKED
         loop each row, in order
             R->>J: withEmittedAt(payload, at)
-            Note right of J: a broken payload stops the loop:<br/>that row halts the relay
+        end
+        opt a payload breaks the contract
+            R->>O: recordFailure(row, error)
+            Note over R,DB: COMMIT, nothing sent, then HALT
         end
         R->>P: send(row, body) for every built row
         P--)MQ: publish (not in the DB TX)
@@ -466,7 +470,7 @@ sequenceDiagram
         else all confirmed
             R->>O: markEmitted(row, at, body)
             Note over R,DB: COMMIT
-        else refused or unpublishable
+        else refused
             R->>O: markEmitted(row, at, body) for confirmed rows
             R->>O: recordFailure(row, error) for the failing rows
             Note over R,DB: COMMIT, then HALT (health DOWN until restart)
@@ -782,7 +786,7 @@ classDiagram
 
 ## 4. Outbox relay
 
-Diagram 1 shows how rows get into the outbox. This diagram shows how they get out. Every `poll-interval` (2 seconds, fixed delay), `OutboxRelay.tick()` runs one batch in its own transaction. It declares the `apikey.projections` super stream, locks up to 100 pending rows with `FOR UPDATE SKIP LOCKED`, builds each body with `IntegrationEventSerializer.withEmittedAt` (one `emittedAt` per tick, truncated to microseconds so the column and the JSON match), sends them all (partitioned by `apiKeyId`) and waits for the publish confirms against one deadline for the whole batch. Then it stamps confirmed rows with the exact body that was sent. An outage rolls the tick back; a refused or unpublishable row is recorded on the row and halts the relay until restart. `OutboxRelayConfig` wires these beans.
+Diagram 1 shows how rows get into the outbox. This diagram shows how they get out. Every `poll-interval` (2 seconds, fixed delay), `OutboxRelay.tick()` runs one batch in its own transaction. It declares the `apikey.projections` super stream, locks up to 100 pending rows with `FOR UPDATE SKIP LOCKED`, builds each body with `IntegrationEventSerializer.withEmittedAt` (one `emittedAt` per tick, truncated to microseconds so the column and the JSON match), sends them all (partitioned by `apiKeyId`) and waits for the publish confirms against one deadline for the whole batch. Then it stamps confirmed rows with the exact body that was sent. An outage rolls the tick back; a refused row is recorded on the row and halts the relay until restart. A payload that breaks the contract drops the whole batch before anything is sent, is recorded on its row and halts the relay. `OutboxRelayConfig` wires these beans.
 
 ```mermaid
 classDiagram

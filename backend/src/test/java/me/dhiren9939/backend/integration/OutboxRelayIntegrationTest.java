@@ -232,20 +232,21 @@ class OutboxRelayIntegrationTest {
 
     @Test
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD) // the halt lasts for the context's life
-    @DisplayName("a stored payload that breaks the contract is recorded on its row and halts the relay")
+    @DisplayName("a stored payload that breaks the contract drops the batch, is recorded on its row and halts the relay")
     void haltsOnAnUnpublishableRow() {
         UUID owner = UUID.randomUUID();
-        UUID good = issue(owner, "good");
         UUID brokenEventId = UUID.randomUUID();
+        // An hour in the past, so it is first in order whenever the relay polls.
         jdbc.update("insert into access.outbox (event_id, event_type, api_key_id, change_version, occurred_at, payload, attempts) "
-                + "values (?, 'apiKey.projection.update', ?, 2, now() + interval '1 hour', '{\"broken\": true}'::jsonb, 0)",
-                brokenEventId, good);
+                + "values (?, 'apiKey.projection.update', ?, 1, now() - interval '1 hour', '{\"broken\": true}'::jsonb, 0)",
+                brokenEventId, UUID.randomUUID());
+        UUID good = issue(owner, "good");
 
         await(Duration.ofSeconds(30), () -> relay.halt().isPresent());
 
         assertThat(relay.halt()).hasValueSatisfying(halt -> assertThat(halt.eventId()).isEqualTo(brokenEventId));
-        assertThat(jdbc.queryForObject("select emitted_at is not null from access.outbox where api_key_id = ? "
-                + "and event_id <> ?", Boolean.class, good, brokenEventId)).as("the row before it was published").isTrue();
+        assertThat(jdbc.queryForObject("select emitted_at is null from access.outbox where api_key_id = ?",
+                Boolean.class, good)).as("nothing is sent with a broken row in the batch").isTrue();
         Map<String, Object> broken = jdbc.queryForMap(
                 "select emitted_at, attempts, last_error from access.outbox where event_id = ?", brokenEventId);
         assertThat(broken.get("emitted_at")).isNull();
@@ -255,7 +256,7 @@ class OutboxRelayIntegrationTest {
 
         issue(owner, "after the halt");
         sleep(Duration.ofSeconds(2));
-        assertThat(pending()).as("nothing is published while halted").isEqualTo(2);
+        assertThat(pending()).as("nothing is published while halted").isEqualTo(3); // broken, good, after
     }
 
     private record Received(int partition, UUID eventId, UUID apiKeyId, long version, JsonNode body) {

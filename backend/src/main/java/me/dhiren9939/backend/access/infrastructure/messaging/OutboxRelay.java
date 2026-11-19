@@ -37,12 +37,15 @@ import java.util.concurrent.TimeoutException;
  *       reason that is not about the message): the transaction rolls back, nothing is stamped or counted, and the
  *       next tick polls the same rows again. Messages already confirmed are then sent twice, which consumers absorb:
  *       every event is a full snapshot with the key's {@code version}.</li>
- *   <li><b>Refused</b> (the broker answered that it will not take a message) or <b>unpublishable</b> (a stored payload
- *       breaks the contract): the confirmed rows are stamped, the failing rows get {@code attempts + 1} and
- *       {@code last_error}, the transaction commits and the relay halts. Nothing is retried: a row that cannot be
- *       published is a contract or configuration failure that a person must fix. A restart clears the halt and starts
- *       again from that row, which is first in order.</li>
+ *   <li><b>Unpublishable</b> (a stored payload breaks the contract; found while building the bodies, before
+ *       anything is sent): the batch is dropped and nothing is sent. Only that row gets {@code attempts + 1} and
+ *       {@code last_error}; the transaction commits and the relay halts.</li>
+ *   <li><b>Refused</b> (the broker answered that it will not take a message): the confirmed rows are stamped, the
+ *       refused rows get {@code attempts + 1} and {@code last_error}, the transaction commits and the relay halts.</li>
  * </ul>
+ *
+ * <p>Nothing is retried: a row that cannot be published is a contract or configuration failure that a person must
+ * fix. A restart clears the halt and starts again from that row, which is first in order.</p>
  */
 @Slf4j
 public class OutboxRelay {
@@ -102,14 +105,15 @@ public class OutboxRelay {
         // PostgreSQL keeps microseconds; truncating keeps the emitted_at column and the JSON emittedAt identical.
         Instant at = clock.instant().truncatedTo(ChronoUnit.MICROS);
 
+        // Build every body before sending anything. One broken payload drops the whole batch: nothing is sent.
         List<Pending> sendable = new ArrayList<>();
-        Failure unpublishable = null;
         for (EventOutboxEntity row : rows) {
             try {
                 sendable.add(new Pending(row, serializer.withEmittedAt(row.getPayload(), at)));
             } catch (IntegrationEventSerializationException e) {
-                unpublishable = new Failure(row, "Unpublishable: " + e.getMessage());
-                break;
+                String error = "Unpublishable: " + e.getMessage();
+                store.recordFailure(row, error);
+                return new Halt(row.getEventId(), row.getEventType(), error);
             }
         }
 
@@ -147,8 +151,6 @@ public class OutboxRelay {
                 failures.add(new Failure(pending.row(), "Broker did not confirm the message"));
             }
         }
-        if (unpublishable != null)
-            failures.add(unpublishable);
 
         for (Pending pending : confirmed)
             store.markEmitted(pending.row(), at, pending.body());
