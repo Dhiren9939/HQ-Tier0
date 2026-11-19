@@ -232,7 +232,12 @@ class OutboxRelayTest {
         relay.tick();
 
         assertThat(refused.getLastError()).isEqualTo("code 16: access refused");
-        assertThat(relay.halt()).hasValueSatisfying(halt -> assertThat(halt.error()).isEqualTo("code 16: access refused"));
+        assertThat(relay.halt()).hasValueSatisfying(halt -> {
+            assertThat(halt.reason()).isEqualTo("code 16: access refused");
+            assertThat(halt.apiKeyId()).isEqualTo(refused.getApiKeyId());
+            assertThat(halt.version()).isEqualTo(1);
+            assertThat(halt.batch()).isEqualTo("0 of 1 event(s) in this tick were confirmed and marked published; 1 refused");
+        });
     }
 
     @Test
@@ -249,7 +254,11 @@ class OutboxRelayTest {
         assertThat(broken.getAttempts()).isEqualTo(1);
         assertThat(broken.getLastError()).startsWith("Unpublishable");
         assertUntouched(after);
-        assertThat(relay.halt()).hasValueSatisfying(halt -> assertThat(halt.eventId()).isEqualTo(broken.getEventId()));
+        assertThat(relay.halt()).hasValueSatisfying(halt -> {
+            assertThat(halt.eventId()).isEqualTo(broken.getEventId());
+            assertThat(halt.reason()).startsWith("its stored payload breaks the event contract");
+            assertThat(halt.batch()).isEqualTo("dropped: none of the 3 event(s) taken in this tick were sent");
+        });
     }
 
     @Test

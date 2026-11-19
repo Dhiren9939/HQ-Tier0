@@ -317,7 +317,7 @@ How to read it:
 | OutboxStore | `OutboxStore` | The outbox operations. `append` serializes the event and inserts the row in the caller's transaction. For the relay: lock pending rows, stamp a row as emitted with the body that was sent, record why a row could not be published. |
 | IntegrationEventSerializer | `IntegrationEventSerializer`, `IntegrationEventSerializationException` | Writes the event as the JSON body and checks it against the whole contract, before it is stored (`toJson`) and again before it is published (`withEmittedAt`). |
 | OutboxRelay | `OutboxRelay`, `OutboxRelayHealth`, `OutboxRelayProperties` | Every 2 seconds publishes up to 100 pending rows with publisher confirms. Cancels the batch on a broker outage; halts (health DOWN) on a refused or unpublishable row. Never retries. |
-| ProjectionStream | `ProjectionStream`, `RabbitProjectionStream`, `ProjectionMessages`, `ProjectionRefusedException` | The super stream, routed by `apiKeyId`. Builds the message and tells a broker refusal from an outage. |
+| ProjectionStream | `ProjectionStream`, `RabbitProjectionStream`, `ProjectionMessages`, `ProjectionRefusedException`, `ProjectionUnavailableException` | The super stream, routed by `apiKeyId`. Builds the message and tells a broker refusal from an outage. |
 | Key formats | `CredentialIssuer`, `V1CredentialIssuer`, `V1CredentialVerifier`, `Sha256SecretHasher`, `SortableEncoder` | Generates and checks credentials. |
 | Config | `ApiKeyConfig`, `OutboxRelayConfig`, `BackendApplication` | Wiring: the clock, the current key format and the relay. |
 
@@ -830,6 +830,9 @@ classDiagram
     class ProjectionRefusedException {
         <<exception>>
     }
+    class ProjectionUnavailableException {
+        <<exception>>
+    }
     class RabbitStreamTemplate {
         <<spring amqp>>
     }
@@ -868,7 +871,8 @@ classDiagram
     RabbitProjectionStream --> Environment : streamCreator().superStream().create()
     RabbitProjectionStream --> ProjectionMessages : toMessage(row, body, builder)
     RabbitProjectionStream --> RabbitStreamTemplate : messageBuilder() / send(message)
-    RabbitProjectionStream ..> ProjectionRefusedException : broker answered with an error code
+    RabbitProjectionStream ..> ProjectionRefusedException : refusal code, halts
+    RabbitProjectionStream ..> ProjectionUnavailableException : outage code, repolls
 ```
 
 How a send ends, as `RabbitProjectionStream` reports it to the relay:
@@ -876,9 +880,11 @@ How a send ends, as `RabbitProjectionStream` reports it to the relay:
 | Template answer | Port answer | Relay does |
 |---|---|---|
 | confirmed | `true` | stamps the row |
-| `StreamSendException` with a client or connection code (producer closed or unavailable, confirm timeout, enqueue failed, stream not available or missing) | exceptional | outage: rolls the tick back, repolls next tick |
-| `StreamSendException` with any other code | exceptional, `ProjectionRefusedException` | refusal: records the error on the row and halts |
-| any other exception, or no answer before the deadline | exceptional / timeout | outage |
+| `StreamSendException` with an outage code: `MESSAGE_ENQUEUEING_FAILED` (10001), `PRODUCER_NOT_AVAILABLE` (10002), `PRODUCER_CLOSED` (10003), `PUBLISH_CONFIRM_TIMEOUT` (10004), `STREAM_DOES_NOT_EXIST` (2), `STREAM_NOT_AVAILABLE` (6), `INTERNAL_ERROR` (15), `PUBLISHER_DOES_NOT_EXIST` (18, the reconnect race) | exceptional, `ProjectionUnavailableException` | outage: rolls the tick back, repolls next tick |
+| `StreamSendException` with any other code, e.g. `ACCESS_REFUSED` (16), `PRECONDITION_FAILED` (17), `NO_ROUTE_FOUND` (10005) | exceptional, `ProjectionRefusedException` | refusal: records the error on the row and halts |
+| any other exception, or no answer before the timeout | exceptional (`ProjectionUnavailableException`) / timeout | outage |
+
+Messages name the code (`ACCESS_REFUSED (16)`). An outage logs one WARN line per tick (events cancelled, nothing marked, when it retries, why). A halt logs one ERROR block: the event, its key and version, the reason, what happened to the batch, and how to recover.
 
 ## 5. Domain model
 

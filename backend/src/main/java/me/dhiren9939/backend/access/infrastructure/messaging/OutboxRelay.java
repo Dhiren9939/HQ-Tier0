@@ -68,8 +68,13 @@ public class OutboxRelay {
         this.transactions = transactions;
     }
 
-    /** Why the relay stopped: the first row it could not publish. */
-    public record Halt(UUID eventId, String eventType, String error) {
+    /**
+     * Why the relay stopped: the first event it could not publish, why, and what happened to the rest of that batch.
+     *
+     * @param reason why the event could not be published
+     * @param batch  what happened to the other events taken in the same tick
+     */
+    public record Halt(UUID eventId, String eventType, UUID apiKeyId, long version, String reason, String batch) {
     }
 
     /** Present once the relay has halted; it stays halted until the application restarts. */
@@ -85,8 +90,15 @@ public class OutboxRelay {
         Halt stuck = transactions.execute(this::relayBatch);
         if (stuck != null) {
             halt = stuck;
-            log.error("Outbox relay halted at event {} ({}): {}. Fix the cause and restart to resume.",
-                    stuck.eventId(), stuck.eventType(), stuck.error());
+            log.error("""
+                    Outbox relay HALTED: nothing more will be published until the application is restarted.
+                      event:   {} ({}) for apiKeyId {} version {}
+                      reason:  {}
+                      batch:   {}
+                      recover: fix the cause, then restart the application; publishing resumes from this event. \
+                    The error is also stored in access.outbox.last_error for event_id {}.""",
+                    stuck.eventId(), stuck.eventType(), stuck.apiKeyId(), stuck.version(), stuck.reason(),
+                    stuck.batch(), stuck.eventId());
         }
     }
 
@@ -95,7 +107,8 @@ public class OutboxRelay {
         try {
             stream.declare();
         } catch (RuntimeException e) {
-            log.warn("Outbox relay could not declare the stream; repolling next tick: {}", e.toString());
+            log.warn("Outbox relay: cannot reach the broker to declare stream {}; no events were taken, retrying in {}. "
+                    + "Reason: {}", properties.streamName(), readable(properties.pollInterval()), e.toString());
             return null;
         }
 
@@ -111,9 +124,9 @@ public class OutboxRelay {
             try {
                 sendable.add(new Pending(row, serializer.withEmittedAt(row.getPayload(), at)));
             } catch (IntegrationEventSerializationException e) {
-                String error = "Unpublishable: " + e.getMessage();
-                store.recordFailure(row, error);
-                return new Halt(row.getEventId(), row.getEventType(), error);
+                store.recordFailure(row, "Unpublishable: " + e.getMessage());
+                return halt(row, "its stored payload breaks the event contract: " + e.getMessage(),
+                        "dropped: none of the " + rows.size() + " event(s) taken in this tick were sent");
             }
         }
 
@@ -122,12 +135,13 @@ public class OutboxRelay {
             for (Pending pending : sendable)
                 confirms.add(stream.send(pending.row(), pending.body()));
         } catch (RuntimeException e) {
-            return outage(status, "a send failed: " + e);
+            return outage(status, sendable.size(), "sending failed: " + e);
         }
 
         // Wait once for all the confirms (like Promise.allSettled), at most confirmTimeout in total.
         if (!waitForAll(confirms, properties.confirmTimeout()))
-            return outage(status, "publish confirms did not arrive within " + properties.confirmTimeout());
+            return outage(status, sendable.size(),
+                    "the broker did not confirm every message within " + readable(properties.confirmTimeout()));
 
         // Every confirm has an answer now, so nothing below waits.
         List<Pending> confirmed = new ArrayList<>();
@@ -142,25 +156,33 @@ public class OutboxRelay {
                     // The broker said no to this message: record it, and the relay halts.
                     failures.add(new Failure(pending.row(), error.getMessage()));
                 } else {
-                    // A connection problem: cancel the batch and try again next tick.
-                    return outage(status, "a publish was not confirmed: " + error);
+                    // The broker or the connection could not take it right now: cancel the batch, try again next tick.
+                    return outage(status, sendable.size(), error instanceof ProjectionUnavailableException
+                            ? error.getMessage() : error.toString());
                 }
             } else if (Boolean.TRUE.equals(confirm.resultNow())) {
                 confirmed.add(pending);
             } else {
-                failures.add(new Failure(pending.row(), "Broker did not confirm the message"));
+                failures.add(new Failure(pending.row(), "the broker did not confirm the message"));
             }
         }
 
         for (Pending pending : confirmed)
             store.markEmitted(pending.row(), at, pending.body());
-        if (failures.isEmpty())
+        if (failures.isEmpty()) {
+            log.debug("Outbox relay published {} event(s)", confirmed.size());
             return null;
+        }
 
         for (Failure failure : failures)
             store.recordFailure(failure.row(), failure.error());
         Failure first = failures.getFirst();
-        return new Halt(first.row().getEventId(), first.row().getEventType(), first.error());
+        return halt(first.row(), first.error(), confirmed.size() + " of " + sendable.size()
+                + " event(s) in this tick were confirmed and marked published; " + failures.size() + " refused");
+    }
+
+    private static Halt halt(EventOutboxEntity row, String reason, String batch) {
+        return new Halt(row.getEventId(), row.getEventType(), row.getApiKeyId(), row.getVersion(), reason, batch);
     }
 
     /**
@@ -186,10 +208,17 @@ public class OutboxRelay {
         }
     }
 
-    private static Halt outage(TransactionStatus status, String reason) {
+    /** Rolls the tick back: nothing is marked published or counted, and the next tick sends the same events again. */
+    private Halt outage(TransactionStatus status, int events, String reason) {
         status.setRollbackOnly();
-        log.warn("Outbox relay cancelled its batch; repolling next tick: {}", reason);
+        log.warn("Outbox relay: broker unavailable, cancelled this batch of {} event(s); nothing was marked published "
+                + "or counted, retrying in {}. Reason: {}", events, readable(properties.pollInterval()), reason);
         return null;
+    }
+
+    /** {@code PT0.2S} as {@code 0.2s}, {@code PT5S} as {@code 5s}, for logs. */
+    private static String readable(Duration duration) {
+        return duration.toString().substring(2).toLowerCase();
     }
 
     private record Pending(EventOutboxEntity row, String body) {

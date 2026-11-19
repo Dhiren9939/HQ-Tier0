@@ -67,18 +67,19 @@ class RabbitProjectionStreamTest {
 
         assertThat(result).isCompletedExceptionally();
         assertThat(result.exceptionNow()).isInstanceOf(ProjectionRefusedException.class)
-                .hasMessageContaining(String.valueOf(Constants.RESPONSE_CODE_ACCESS_REFUSED));
+                .hasMessage("the broker refused the message: ACCESS_REFUSED (16)");
     }
 
     @Test
     void aClientOrConnectionCodeIsAnOutage() {
         for (short code : new short[]{Constants.CODE_PRODUCER_CLOSED, Constants.CODE_PUBLISH_CONFIRM_TIMEOUT,
                 Constants.CODE_PRODUCER_NOT_AVAILABLE, Constants.CODE_MESSAGE_ENQUEUEING_FAILED,
-                Constants.RESPONSE_CODE_STREAM_NOT_AVAILABLE, Constants.RESPONSE_CODE_STREAM_DOES_NOT_EXIST}) {
+                Constants.RESPONSE_CODE_STREAM_NOT_AVAILABLE, Constants.RESPONSE_CODE_STREAM_DOES_NOT_EXIST,
+                Constants.RESPONSE_CODE_PUBLISHER_DOES_NOT_EXIST, Constants.RESPONSE_CODE_INTERNAL_ERROR}) {
             CompletableFuture<Boolean> result = sendAnswered(CompletableFuture.failedFuture(
                     new StreamSendException("down", code)));
 
-            assertThat(result.exceptionNow()).as("code %s", code).isInstanceOf(StreamSendException.class);
+            assertThat(result.exceptionNow()).as("code %s", code).isInstanceOf(ProjectionUnavailableException.class);
         }
     }
 
@@ -86,6 +87,26 @@ class RabbitProjectionStreamTest {
     void anyOtherFailureIsAnOutage() {
         CompletableFuture<Boolean> result = sendAnswered(CompletableFuture.failedFuture(new IllegalStateException("closed")));
 
-        assertThat(result.exceptionNow()).isInstanceOf(IllegalStateException.class);
+        assertThat(result.exceptionNow()).isInstanceOf(ProjectionUnavailableException.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void theReconnectRaceAndBrokerInternalErrorsAreOutagesNotHalts() {
+        assertThat(sendAnswered(CompletableFuture.failedFuture(new StreamSendException("reconnecting",
+                Constants.RESPONSE_CODE_PUBLISHER_DOES_NOT_EXIST))).exceptionNow())
+                .isInstanceOf(ProjectionUnavailableException.class)
+                .hasMessage("the broker could not take the message right now: PUBLISHER_DOES_NOT_EXIST (18)");
+        assertThat(sendAnswered(CompletableFuture.failedFuture(new StreamSendException("oops",
+                Constants.RESPONSE_CODE_INTERNAL_ERROR))).exceptionNow())
+                .isInstanceOf(ProjectionUnavailableException.class)
+                .hasMessage("the broker could not take the message right now: INTERNAL_ERROR (15)");
+    }
+
+    @Test
+    void codesAreNamed() {
+        assertThat(RabbitProjectionStream.describe(Constants.CODE_NO_ROUTE_FOUND)).isEqualTo("NO_ROUTE_FOUND (10005)");
+        assertThat(RabbitProjectionStream.describe(Constants.RESPONSE_CODE_ACCESS_REFUSED)).isEqualTo("ACCESS_REFUSED (16)");
+        assertThat(RabbitProjectionStream.describe((short) 999)).isEqualTo("code 999");
     }
 }
