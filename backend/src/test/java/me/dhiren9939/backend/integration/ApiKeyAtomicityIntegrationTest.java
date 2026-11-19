@@ -5,15 +5,21 @@ import me.dhiren9939.backend.access.application.usecase.user.delete.DeleteApiKey
 import me.dhiren9939.backend.access.application.usecase.user.update.UpdateApiKeyCommand;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKeyState;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
+import me.dhiren9939.backend.access.infrastructure.serialization.IntegrationEventSerializationException;
+import me.dhiren9939.backend.access.infrastructure.serialization.IntegrationEventSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * If the outbox row cannot be written, the key change must not survive. The outbox write is made to fail
@@ -23,12 +29,14 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
 
     private final UUID owner = UUID.randomUUID();
 
+    @MockitoSpyBean IntegrationEventSerializer serializer;
+
     @BeforeEach
     void installFailingOutboxTrigger() {
         jdbc.execute("""
                 create or replace function access.refuse_boom() returns trigger as $$
                 begin
-                    if new.api_key_name = 'boom' then
+                    if new.payload->>'apiKeyName' = 'boom' then
                         raise exception 'outbox write refused for test';
                     end if;
                     return new;
@@ -43,6 +51,19 @@ class ApiKeyAtomicityIntegrationTest extends AccessIntegrationTest {
     @AfterEach
     void removeTrigger() {
         jdbc.execute("drop trigger if exists refuse_boom on access.outbox");
+    }
+
+    @Test
+    @DisplayName("issue: an event that cannot be serialized leaves no key and no outbox row")
+    void serializationFailureRollsBack() {
+        doThrow(new IntegrationEventSerializationException("cannot serialize")).when(serializer).toJson(any(), any());
+
+        assertThatThrownBy(() -> issue(owner, "serial", Lifetime.NEVER, ingestionWrite()))
+                .isInstanceOf(IntegrationEventSerializationException.class);
+
+        assertThat(count("access.api_keys")).isZero();
+        assertThat(count("access.api_key_permissions")).isZero();
+        assertThat(count("access.outbox")).isZero();
     }
 
     @Test

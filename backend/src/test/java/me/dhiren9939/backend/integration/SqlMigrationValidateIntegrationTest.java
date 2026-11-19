@@ -59,6 +59,7 @@ class SqlMigrationValidateIntegrationTest {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V3__remove_api_key_tombstones.sql"));
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V4__drop_outbox_change_columns.sql"));
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V5__outbox_relay.sql"));
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V6__outbox_payload_jsonb.sql"));
         }
 
         registry.add("spring.datasource.url", () -> url);

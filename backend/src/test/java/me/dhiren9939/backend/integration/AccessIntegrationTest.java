@@ -19,7 +19,12 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -71,21 +76,36 @@ public abstract class AccessIntegrationTest extends PostgresIntegrationTest {
     /** What the outbox holds, oldest revision first. */
     protected List<OutboxRow> outbox() {
         return jdbc.query("""
-                select event_type, change_version, access_secret_hash, permissions, api_key_name,
-                       occurred_at, emitted_at, api_key_id
+                select event_id, event_type, change_version, occurred_at, emitted_at, api_key_id, payload::text as payload
                 from access.outbox order by change_version, event_type
                 """, (rs, i) -> new OutboxRow(
+                rs.getObject("event_id", UUID.class),
                 rs.getString("event_type"),
                 rs.getLong("change_version"),
-                rs.getString("access_secret_hash"),
-                rs.getString("permissions"),
-                rs.getString("api_key_name"),
                 rs.getObject("occurred_at"),
                 rs.getObject("emitted_at"),
-                rs.getObject("api_key_id", UUID.class)));
+                rs.getObject("api_key_id", UUID.class),
+                JSON.readTree(rs.getString("payload"))));
     }
 
-    protected record OutboxRow(String eventType, long version, String accessSecretHash, String permissions,
-                               String apiKeyName, Object occurredAt, Object emittedAt, UUID apiKeyId) {
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    /** An outbox row: the metadata columns, and the event JSON with a few of its fields read out for convenience. */
+    protected record OutboxRow(UUID eventId, String eventType, long version, Object occurredAt, Object emittedAt,
+                               UUID apiKeyId, JsonNode payload) {
+
+        public String accessSecretHash() {
+            return payload.get("accessSecretHash").asString();
+        }
+
+        public String apiKeyName() {
+            return payload.get("apiKeyName").asString();
+        }
+
+        public Map<String, String> permissions() {
+            Map<String, String> permissions = new LinkedHashMap<>();
+            payload.get("permissions").properties().forEach(entry -> permissions.put(entry.getKey(), entry.getValue().asString()));
+            return permissions;
+        }
     }
 }

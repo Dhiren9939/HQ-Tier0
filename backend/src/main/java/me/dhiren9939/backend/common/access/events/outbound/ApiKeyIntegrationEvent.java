@@ -20,7 +20,7 @@ public sealed interface ApiKeyIntegrationEvent permits ApiKeyCreatedIntegrationE
     /** When the aggregate registered the command. */
     Instant occurredAt();
 
-    /** When the command was published into the stream; null until a relay publishes it. */
+    /** When the event was published; null until then, so it is never part of the stored outbox payload. */
     Instant emittedAt();
 
     UUID apiKeyId();
@@ -37,8 +37,8 @@ public sealed interface ApiKeyIntegrationEvent permits ApiKeyCreatedIntegrationE
 
     String apiKeyName();
 
-    /** Scope name to level name, e.g. {@code {"INGESTION":"WRITE"}}; an absent scope means no access. */
-    Map<String, String> permissions();
+    /** Granted level per scope, e.g. {@code {"INGESTION":"WRITE"}}; an absent scope means no access (NONE). */
+    Map<ApiKeyScope, ApiKeyAccessLevel> permissions();
 
     Instant createdAt();
 

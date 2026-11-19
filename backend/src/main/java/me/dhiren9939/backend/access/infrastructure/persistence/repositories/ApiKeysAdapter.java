@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import me.dhiren9939.backend.access.application.events.ApiKeyIntegrationEventMapper;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import me.dhiren9939.backend.access.domain.repositories.ApiKeys;
-import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -13,14 +12,14 @@ import java.util.UUID;
 /**
  * JPA implementation of {@link ApiKeys}. After storing or removing a key it maps the domain events the
  * aggregate registered to integration events, through the injected {@link ApiKeyIntegrationEventMapper}, and
- * writes them straight into the outbox, in the caller's transaction: if the outbox row cannot be written the key
- * change rolls back with it.
+ * appends them to the {@link OutboxStore}, in the caller's transaction: if an event cannot be serialized or its row
+ * cannot be written, the key change rolls back with it.
  */
 @Repository
 @RequiredArgsConstructor
 class ApiKeysAdapter implements ApiKeys {
     private final JpaApiKeyRepository repository;
-    private final EventOutboxRepository outboxRepository;
+    private final OutboxStore outbox;
     private final ApiKeyIntegrationEventMapper integrationEventMapper;
 
     @Override
@@ -49,6 +48,6 @@ class ApiKeysAdapter implements ApiKeys {
     private void writeEventsOf(ApiKey key) {
         key.pullDomainEvents().stream()
                 .map(integrationEventMapper::toIntegrationEvent)
-                .forEach(event -> outboxRepository.save(EventOutboxEntity.of(event)));
+                .forEach(outbox::append);
     }
 }

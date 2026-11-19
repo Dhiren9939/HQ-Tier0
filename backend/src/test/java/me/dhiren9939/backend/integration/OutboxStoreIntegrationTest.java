@@ -55,6 +55,39 @@ class OutboxStoreIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
+    @DisplayName("an appended row's columns and its payload agree, and the payload has no emittedAt yet")
+    void appendKeepsColumnsAndPayloadInStep() {
+        UUID key = issueAt(T0, "k");
+
+        OutboxRow row = outbox().getFirst();
+
+        assertThat(row.payload().get("eventId").asString()).isEqualTo(row.eventId().toString());
+        assertThat(row.payload().get("eventType").asString()).isEqualTo(row.eventType());
+        assertThat(row.payload().get("apiKeyId").asString()).isEqualTo(key.toString());
+        assertThat(row.payload().get("version").asLong()).isEqualTo(row.version());
+        assertThat(Instant.parse(row.payload().get("occurredAt").asString())).isEqualTo(T0);
+        assertThat(row.payload().has("emittedAt")).isFalse();
+    }
+
+    @Test
+    @DisplayName("marking a row emitted stamps the column and the payload with the same time")
+    void markEmittedStampsColumnAndPayload() {
+        issueAt(T0, "k");
+        Instant at = T0.plusSeconds(30);
+
+        inTransaction(() -> {
+            store.markEmitted(store.lockPending(1), at);
+            return null;
+        });
+
+        OutboxRow row = outbox().getFirst();
+        assertThat(row.emittedAt()).isNotNull();
+        assertThat(Instant.parse(row.payload().get("emittedAt").asString())).isEqualTo(at);
+        assertThat(jdbc.queryForObject("select emitted_at = (payload->>'emittedAt')::timestamptz from access.outbox",
+                Boolean.class)).isTrue();
+    }
+
+    @Test
     @DisplayName("a refused attempt is counted and kept on the row")
     void recordFailurePersists() {
         issueAt(T0, "k");
@@ -79,8 +112,8 @@ class OutboxStoreIntegrationTest extends AccessIntegrationTest {
         });
 
         assertThat(count("access.outbox")).isZero();
-        assertThat(jdbc.queryForMap("select api_key_id, change_version, attempts, last_error, dead_at, access_secret_hash "
-                + "from access.outbox_dead_letter"))
+        assertThat(jdbc.queryForMap("select api_key_id, change_version, attempts, last_error, dead_at, "
+                + "payload->>'accessSecretHash' as access_secret_hash from access.outbox_dead_letter"))
                 .containsEntry("api_key_id", key)
                 .containsEntry("change_version", 1L)
                 .containsEntry("attempts", 1)

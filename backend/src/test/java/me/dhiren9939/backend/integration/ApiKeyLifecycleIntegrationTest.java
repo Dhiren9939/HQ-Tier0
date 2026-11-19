@@ -62,9 +62,13 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(created.version()).isEqualTo(1);
         assertThat(created.apiKeyId()).isEqualTo(key.apiKeyId());
         assertThat(created.apiKeyName()).isEqualTo("ci key");
-        assertThat(created.permissions()).isEqualTo("{\"INGESTION\":\"WRITE\"}");
+        assertThat(created.permissions()).isEqualTo(Map.of("INGESTION", "WRITE"));
+        assertThat(created.payload().get("eventId").asString()).isEqualTo(created.eventId().toString());
+        assertThat(created.payload().get("eventType").asString()).isEqualTo(created.eventType());
+        assertThat(created.payload().has("emittedAt")).as("added when published").isFalse();
+        assertThat(Instant.parse(created.payload().get("expiresAt").asString())).isEqualTo(key.expiresAt());
         assertThat(created.occurredAt()).isNotNull();
-        assertThat(created.emittedAt()).as("emitted_at is filled only by a relay").isNull();
+        assertThat(created.emittedAt()).as("emitted_at is filled only when published").isNull();
 
         String expectedHash = sha256Hex(issued.accessSecret());
         assertThat(created.accessSecretHash()).isEqualTo(expectedHash);
@@ -72,7 +76,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
                 "select access_secret_hash from access.api_keys where api_key_id = ?", String.class, key.apiKeyId());
         assertThat(storedHash).isEqualTo(expectedHash).isNotEqualTo(issued.accessSecret());
         assertThat(count("access.api_keys where access_secret_hash = '" + issued.accessSecret() + "'")).isZero();
-        assertThat(count("access.outbox where access_secret_hash = '" + issued.accessSecret() + "'")).isZero();
+        assertThat(count("access.outbox where payload->>'accessSecretHash' = '" + issued.accessSecret() + "'")).isZero();
         assertThat(count("access.api_key_permissions")).isEqualTo(1);
     }
 
@@ -81,7 +85,9 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     void issueWithoutPermissions() {
         issue(owner, "bare", Lifetime.NEVER, Permissions.none());
 
-        assertThat(outbox().getFirst().permissions()).isEqualTo("{}");
+        assertThat(outbox().getFirst().permissions()).isEmpty();
+        assertThat(outbox().getFirst().payload().get("permissions").isObject()).isTrue();
+        assertThat(outbox().getFirst().payload().get("expiresAt").isNull()).as("never expires").isTrue();
         assertThat(count("access.api_key_permissions")).isZero();
     }
 
@@ -158,7 +164,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(updatedRow.eventType()).isEqualTo("apiKey.projection.update");
         assertThat(updatedRow.version()).isEqualTo(2);
         assertThat(updatedRow.apiKeyName()).isEqualTo("renamed");
-        assertThat(updatedRow.permissions()).isEqualTo("{\"INGESTION\":\"WRITE\",\"TENANT\":\"READ\"}");
+        assertThat(updatedRow.permissions()).isEqualTo(Map.of("INGESTION", "WRITE", "TENANT", "READ"));
         assertThat(updatedRow.accessSecretHash()).as("every event is a full snapshot, hash included")
                 .isNotNull().isEqualTo(rows.get(0).accessSecretHash());
         assertThat(updatedRow.emittedAt()).isNull();
@@ -219,7 +225,7 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
         assertThat(rows).hasSize(2);
         assertThat(rows.get(1).eventType()).isEqualTo("apiKey.projection.delete");
         assertThat(rows.get(1).version()).isEqualTo(2);
-        assertThat(rows.get(1).permissions()).isEqualTo("{\"INGESTION\":\"WRITE\"}");
+        assertThat(rows.get(1).permissions()).isEqualTo(Map.of("INGESTION", "WRITE"));
         assertThat(rows.get(1).accessSecretHash()).as("the delete event is a full snapshot, hash included")
                 .isNotNull().isEqualTo(rows.get(0).accessSecretHash());
         assertThat(count("access.api_keys")).isZero();

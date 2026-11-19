@@ -6,13 +6,14 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.Scope;
 import me.dhiren9939.backend.access.domain.events.ApiKeyCreated;
 import me.dhiren9939.backend.access.domain.events.ApiKeyDeleted;
 import me.dhiren9939.backend.access.domain.events.ApiKeyUpdated;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyAccessLevel;
 import me.dhiren9939.backend.common.access.events.outbound.ApiKeyCreatedIntegrationEvent;
 import me.dhiren9939.backend.common.access.events.outbound.ApiKeyDeletedIntegrationEvent;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyScope;
 import me.dhiren9939.backend.common.access.events.outbound.ApiKeyUpdatedIntegrationEvent;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -35,11 +36,8 @@ class DefaultApiKeyIntegrationEventMapperTest {
             .with(Scope.INGESTION, AccessLevel.WRITE)
             .with(Scope.TENANT, AccessLevel.READ);
 
-    private static Map<String, String> wirePermissions() {
-        Map<String, String> expected = new LinkedHashMap<>();
-        expected.put("INGESTION", "WRITE");
-        expected.put("TENANT", "READ");
-        return expected;
+    private static Map<ApiKeyScope, ApiKeyAccessLevel> publishedPermissions() {
+        return Map.of(ApiKeyScope.INGESTION, ApiKeyAccessLevel.WRITE, ApiKeyScope.TENANT, ApiKeyAccessLevel.READ);
     }
 
     @Test
@@ -54,11 +52,11 @@ class DefaultApiKeyIntegrationEventMapperTest {
         assertThat(integrationEvent.apiKeyId()).isEqualTo(KEY_ID);
         assertThat(integrationEvent.version()).isEqualTo(1);
         assertThat(integrationEvent.occurredAt()).isEqualTo(OCCURRED_AT);
-        assertThat(integrationEvent.emittedAt()).as("only the relay stamps emission").isNull();
+        assertThat(integrationEvent.emittedAt()).as("only publishing stamps emission").isNull();
         assertThat(integrationEvent.userId()).isEqualTo(USER_ID);
         assertThat(integrationEvent.accessId()).isEqualTo(ACCESS_ID);
         assertThat(integrationEvent.accessSecretHash()).isEqualTo("hashed_secret");
-        assertThat(integrationEvent.permissions()).containsExactlyEntriesOf(wirePermissions());
+        assertThat(integrationEvent.permissions()).containsExactlyEntriesOf(publishedPermissions());
         assertThat(integrationEvent.createdAt()).isEqualTo(CREATED_AT);
         assertThat(integrationEvent.expiresAt()).isEqualTo(EXPIRES_AT);
     }
@@ -74,7 +72,7 @@ class DefaultApiKeyIntegrationEventMapperTest {
         assertThat(integrationEvent.version()).isEqualTo(2);
         assertThat(integrationEvent.emittedAt()).isNull();
         assertThat(integrationEvent.accessSecretHash()).as("every command is a full snapshot").isEqualTo("hashed_secret");
-        assertThat(integrationEvent.permissions()).containsExactlyEntriesOf(wirePermissions());
+        assertThat(integrationEvent.permissions()).containsExactlyEntriesOf(publishedPermissions());
         assertThat(integrationEvent.expiresAt()).isEqualTo(EXPIRES_AT);
     }
 
@@ -89,31 +87,58 @@ class DefaultApiKeyIntegrationEventMapperTest {
         assertThat(integrationEvent.version()).isEqualTo(3);
         assertThat(integrationEvent.emittedAt()).isNull();
         assertThat(integrationEvent.accessSecretHash()).as("every command is a full snapshot").isEqualTo("hashed_secret");
-        assertThat(integrationEvent.permissions()).containsExactlyEntriesOf(wirePermissions());
+        assertThat(integrationEvent.permissions()).containsExactlyEntriesOf(publishedPermissions());
         assertThat(integrationEvent.expiresAt()).isEqualTo(EXPIRES_AT);
     }
 
     @Test
-    void wirePermissionsUseScopeDeclarationOrderAndOmitNone() {
-        Map<String, String> wire = WirePermissions.of(PERMISSIONS);
+    void permissionsAreOrderedByScopeAndOmitNone() {
+        Map<ApiKeyScope, ApiKeyAccessLevel> published = MAPPER.toIntegrationEvent(
+                new ApiKeyCreated(NAME, KEY_ID, 1, OCCURRED_AT, USER_ID, ACCESS_ID, "h", PERMISSIONS, CREATED_AT, null))
+                .permissions();
 
-        assertThat(wire.keySet()).containsExactly("INGESTION", "TENANT");
-        assertThat(wire).containsExactlyEntriesOf(wirePermissions());
+        assertThat(published.keySet()).containsExactly(ApiKeyScope.INGESTION, ApiKeyScope.TENANT);
+        assertThat(published).doesNotContainKey(ApiKeyScope.CHANNEL);
     }
 
     @Test
-    void wirePermissionsAreUnmodifiable() {
-        Map<String, String> wire = WirePermissions.of(PERMISSIONS);
+    void noPermissionsArePublishedAsAnEmptyMap() {
+        assertThat(MAPPER.toIntegrationEvent(new ApiKeyCreated(NAME, KEY_ID, 1, OCCURRED_AT, USER_ID, ACCESS_ID, "h",
+                Permissions.none(), CREATED_AT, null)).permissions()).isEmpty();
+    }
 
-        assertThatThrownBy(() -> wire.put("CHANNEL", "READ"))
+    @Test
+    void publishedPermissionsAreUnmodifiable() {
+        Map<ApiKeyScope, ApiKeyAccessLevel> published = MAPPER.toIntegrationEvent(
+                new ApiKeyCreated(NAME, KEY_ID, 1, OCCURRED_AT, USER_ID, ACCESS_ID, "h", PERMISSIONS, CREATED_AT, null))
+                .permissions();
+
+        assertThatThrownBy(() -> published.put(ApiKeyScope.CHANNEL, ApiKeyAccessLevel.READ))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
-    void wirePermissionNamesAreTheContract() {
-        assertThat(java.util.Arrays.stream(Scope.values()).map(Enum::name))
+    void everyGrantableScopeAndLevelHasAPublishedCounterpartOfTheSameName() {
+        for (Scope scope : Scope.values())
+            for (AccessLevel level : scope.allowedLevels()) {
+                if (level == AccessLevel.NONE)
+                    continue;
+                Map<ApiKeyScope, ApiKeyAccessLevel> published = MAPPER.toIntegrationEvent(new ApiKeyCreated(NAME, KEY_ID,
+                        1, OCCURRED_AT, USER_ID, ACCESS_ID, "h", Permissions.none().with(scope, level), CREATED_AT, null))
+                        .permissions();
+
+                assertThat(published).as("%s %s", scope, level).hasSize(1);
+                Map.Entry<ApiKeyScope, ApiKeyAccessLevel> entry = published.entrySet().iterator().next();
+                assertThat(entry.getKey().name()).isEqualTo(scope.name());
+                assertThat(entry.getValue().name()).isEqualTo(level.name());
+            }
+    }
+
+    @Test
+    void thePublishedNamesAreTheContract() {
+        assertThat(java.util.Arrays.stream(ApiKeyScope.values()).map(Enum::name))
                 .containsExactly("INGESTION", "TENANT", "CHANNEL");
-        assertThat(java.util.Arrays.stream(AccessLevel.values()).map(Enum::name))
-                .containsExactly("NONE", "READ", "WRITE", "READ_WRITE");
+        assertThat(java.util.Arrays.stream(ApiKeyAccessLevel.values()).map(Enum::name))
+                .containsExactly("READ", "WRITE", "READ_WRITE");
     }
 }

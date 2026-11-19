@@ -13,7 +13,7 @@ import java.util.UUID;
 public record ApiKeyCreatedIntegrationEvent(String apiKeyName, UUID apiKeyId, long version, Instant occurredAt, Instant emittedAt,
                             UUID userId, String accessId,
                             String accessSecretHash,
-                            Map<String, String> permissions,
+                            Map<ApiKeyScope, ApiKeyAccessLevel> permissions,
                             Instant createdAt, Instant expiresAt) implements ApiKeyIntegrationEvent {
 
     public static final String EVENT_TYPE = "apiKey.projection.create";

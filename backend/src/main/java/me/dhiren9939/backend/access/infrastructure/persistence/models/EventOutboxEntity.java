@@ -3,15 +3,17 @@ package me.dhiren9939.backend.access.infrastructure.persistence.models;
 import jakarta.persistence.*;
 import lombok.*;
 import me.dhiren9939.backend.common.access.events.outbound.ApiKeyIntegrationEvent;
-import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
-import java.util.Map;
 import java.util.UUID;
 
 /**
- * JPA representation of an outgoing API key integration event stored in the outbox. It stores the event's fields
- * as the mapper produced them; any encoding or encryption happens in the mapper, before the row is built.
+ * A row of the outbox: the metadata a relay needs to lock, order, route and track the row, and the integration
+ * event itself as a ready-to-publish JSON {@link #payload}. New events and fields change the payload, not this
+ * table. Anything that must be encoded or encrypted is done by the mapper and written by the serializer before the
+ * row is built.
  */
 @Entity
 @Getter
@@ -22,9 +24,8 @@ import java.util.UUID;
 @Table(name = "outbox", schema = "access")
 public class EventOutboxEntity {
 
+    /** Assigned by the caller, because the payload carries it too. */
     @Id
-    @GeneratedValue
-    @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
     private UUID eventId;
 
     @Column(nullable = false, length = 50)
@@ -39,33 +40,13 @@ public class EventOutboxEntity {
     @Column(nullable = false)
     private Instant occurredAt;
 
-    /** Null until a relay publishes the row into the stream. */
+    /** Null until a relay publishes the row; the payload then holds the same time as {@code emittedAt}. */
     private Instant emittedAt;
 
-    @Column(nullable = false)
-    private UUID userId;
-
-    @Column(nullable = false, length = 256)
-    private String accessId;
-
-    /** Filled on every row written since events became full snapshots; older rows may hold null. */
-    @Column(length = 256)
-    private String accessSecretHash;
-
-    @Column(nullable = false, length = 256)
-    private String apiKeyName;
-
-    /**
-     * Permissions as a JSON object keyed by scope name, e.g. {@code {"INGESTION":"WRITE","TENANT":"READ"}};
-     * a scope that is absent means NONE. This is the wire shape consumers read.
-     */
-    @Column(name = "permissions", nullable = false, columnDefinition = "text")
-    private String permissions;
-
-    @Column(nullable = false)
-    private Instant createdAt;
-
-    private Instant expiresAt;
+    /** The message body. Everything except {@code emittedAt} is final when the row is written. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, columnDefinition = "jsonb")
+    private String payload;
 
     /** Publish attempts the broker refused for this row; transient outages do not count. */
     @Builder.Default
@@ -76,34 +57,21 @@ public class EventOutboxEntity {
     @Column(columnDefinition = "text")
     private String lastError;
 
-    /** Every integration event is a full snapshot of the key, so all of them map the same way. */
-    public static EventOutboxEntity of(ApiKeyIntegrationEvent event) {
+    /** The metadata columns are copied from the event; {@code payload} is that same event as JSON. */
+    public static EventOutboxEntity of(UUID eventId, ApiKeyIntegrationEvent event, String payload) {
         return EventOutboxEntity.builder()
+                .eventId(eventId)
                 .eventType(event.eventType())
                 .apiKeyId(event.apiKeyId())
                 .version(event.version())
                 .occurredAt(event.occurredAt())
-                .emittedAt(event.emittedAt())
-                .userId(event.userId())
-                .accessId(event.accessId())
-                .accessSecretHash(event.accessSecretHash())
-                .apiKeyName(event.apiKeyName())
-                .permissions(permissionsJson(event.permissions()))
-                .createdAt(event.createdAt())
-                .expiresAt(event.expiresAt())
+                .payload(payload)
                 .build();
     }
 
-    /** Serialises explicitly (scope and level names only contain letters and underscores, so no escaping). */
-    static String permissionsJson(Map<String, String> permissions) {
-        StringBuilder json = new StringBuilder("{");
-        boolean first = true;
-        for (Map.Entry<String, String> entry : permissions.entrySet()) {
-            if (!first)
-                json.append(',');
-            json.append('"').append(entry.getKey()).append("\":\"").append(entry.getValue()).append('"');
-            first = false;
-        }
-        return json.append('}').toString();
+    /** Records the publish: the column and the payload carry the same time, and the payload is what was sent. */
+    public void emitted(Instant at, String publishedPayload) {
+        this.emittedAt = at;
+        this.payload = publishedPayload;
     }
 }

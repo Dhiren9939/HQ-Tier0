@@ -23,7 +23,7 @@ interface EventOutboxRepository extends JpaRepository<EventOutboxEntity, UUID> {
     @Query(value = """
             SELECT * FROM access.outbox
             WHERE emitted_at IS NULL
-            ORDER BY occurred_at, change_version
+            ORDER BY occurred_at ASC, change_version ASC
             LIMIT :limit
             FOR UPDATE SKIP LOCKED""", nativeQuery = true)
     List<EventOutboxEntity> lockPending(@Param("limit") int limit);

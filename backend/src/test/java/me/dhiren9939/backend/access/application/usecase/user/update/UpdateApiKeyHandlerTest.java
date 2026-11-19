@@ -5,6 +5,8 @@ import me.dhiren9939.backend.access.application.usecase.InMemoryApiKeys;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.*;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyAccessLevel;
+import me.dhiren9939.backend.common.access.events.outbound.ApiKeyScope;
 import me.dhiren9939.backend.common.access.events.outbound.ApiKeyUpdatedIntegrationEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,7 +57,7 @@ class UpdateApiKeyHandlerTest {
         update(key, null, null, new PermissionChanges(Map.of(Scope.INGESTION, AccessLevel.WRITE)));
 
         ApiKeyUpdatedIntegrationEvent event = (ApiKeyUpdatedIntegrationEvent) apiKeys.publishedEvents.getFirst();
-        assertThat(event.permissions()).isEqualTo(Map.of("INGESTION", "WRITE"));
+        assertThat(event.permissions()).isEqualTo(Map.of(ApiKeyScope.INGESTION, ApiKeyAccessLevel.WRITE));
     }
 
     @Test

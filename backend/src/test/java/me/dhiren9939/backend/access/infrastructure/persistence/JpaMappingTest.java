@@ -69,11 +69,9 @@ class JpaMappingTest {
     }
 
     @Test
-    void theOutboxKeepsPermissionsAsOneTextColumnAndCarriesExpiry() {
-        List<String> columns = columns(entityTable(EventOutboxEntity.class));
-
-        assertThat(columns).contains("permissions", "occurred_at", "emitted_at", "created_at", "expires_at");
-        assertThat(columns).doesNotContain("ingestion_permission");
+    void theOutboxKeepsOnlyMetadataColumnsAndOneJsonbPayload() {
+        assertThat(columns(entityTable(EventOutboxEntity.class))).containsExactlyInAnyOrder("event_id", "event_type",
+                "api_key_id", "change_version", "occurred_at", "emitted_at", "payload", "attempts", "last_error");
     }
 
     @Test
