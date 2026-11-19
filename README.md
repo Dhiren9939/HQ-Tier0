@@ -36,7 +36,7 @@ validate the core architecture (auth, ingestion, queuing, delivery) end-to-end. 
 
 ## Documentation
 
-- [Access context (rules, code map and tests)](docs/access-context.md)
+- [Access: components, interactions and transaction scopes](docs/access-class-diagram.md)
 - [Context map](docs/context-map.md)
 
 ## Prerequisites

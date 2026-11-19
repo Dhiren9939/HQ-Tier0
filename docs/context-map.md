@@ -9,7 +9,7 @@ The backend is a modular monolith that will be split later. Each context below i
 | Context | Responsibility | Subdomain |
 |---|---|---|
 | Identity | Authentication and users (Auth + User merged). | Generic |
-| Access | Issues and manages API keys (formerly "API Key"). See [access-context.md](access-context.md). | Supporting |
+| Access | Issues and manages API keys (formerly "API Key"). See [access-class-diagram.md](access-class-diagram.md). | Supporting |
 | Subscriptions | Two aggregates: **Tenant** (the user's customer, like a Svix "application") and **Channel** (endpoint URL + subscribed event types + webhook signing secret). | Supporting |
 | Ingestion | Authenticates callers via its Access projection, writes the event to the DB, emits an event for the Dispatcher. No routing. | Supporting |
 | Dispatcher | Owns fan-out/routing, retry policy, scheduling, delivery status (formerly "Delivery Service"). | Core |
