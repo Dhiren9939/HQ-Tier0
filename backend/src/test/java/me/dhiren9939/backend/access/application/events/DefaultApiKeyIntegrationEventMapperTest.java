@@ -37,7 +37,10 @@ class DefaultApiKeyIntegrationEventMapperTest {
             .with(Scope.TENANT, AccessLevel.READ);
 
     private static Map<ApiKeyScope, ApiKeyAccessLevel> publishedPermissions() {
-        return Map.of(ApiKeyScope.INGESTION, ApiKeyAccessLevel.WRITE, ApiKeyScope.TENANT, ApiKeyAccessLevel.READ);
+        Map<ApiKeyScope, ApiKeyAccessLevel> published = new java.util.EnumMap<>(ApiKeyScope.class);
+        published.put(ApiKeyScope.INGESTION, ApiKeyAccessLevel.WRITE);
+        published.put(ApiKeyScope.TENANT, ApiKeyAccessLevel.READ);
+        return published;
     }
 
     @Test

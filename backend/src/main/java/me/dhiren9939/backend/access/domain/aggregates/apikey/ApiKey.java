@@ -50,9 +50,9 @@ public class ApiKey {
     @CollectionTable(schema = "access", name = "api_key_permissions",
             joinColumns = @JoinColumn(name = "api_key_id"))
     @MapKeyEnumerated(EnumType.STRING)
-    @MapKeyColumn(name = "scope", length = 50)
+    @MapKeyColumn(name = "scope", length = 256)
     @Enumerated(EnumType.STRING)
-    @Column(name = "access_level", nullable = false, length = 50)
+    @Column(name = "access_level", nullable = false, length = 256)
     @Getter(lombok.AccessLevel.NONE)
     private Map<Scope, AccessLevel> permissionLevels = new EnumMap<>(Scope.class);
 

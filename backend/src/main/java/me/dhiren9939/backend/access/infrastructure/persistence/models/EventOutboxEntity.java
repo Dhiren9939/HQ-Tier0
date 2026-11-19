@@ -28,7 +28,7 @@ public class EventOutboxEntity {
     @Id
     private UUID eventId;
 
-    @Column(nullable = false, length = 50)
+    @Column(nullable = false, length = 256)
     private String eventType;
 
     @Column(nullable = false)
