@@ -10,6 +10,7 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionOperations;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -27,12 +28,12 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>Each tick runs in one transaction: lock up to {@code batch-size} pending rows (oldest first,
  * {@code FOR UPDATE SKIP LOCKED}), build each body with {@link IntegrationEventSerializer#withEmittedAt} using one
- * {@code emittedAt} for the tick, send them all, then wait for every publisher confirm against one deadline for the
+ * {@code emittedAt} for the tick, send them all, then wait once for every publisher confirm (all settled) with one timeout for the
  * whole batch ({@code confirm-timeout}).</p>
  *
  * <ul>
  *   <li><b>All confirmed</b>: every row is stamped with the body that was sent, and the transaction commits.</li>
- *   <li><b>Outage</b> (the stream cannot be declared, a send fails, the deadline passes, or a confirm fails for a
+ *   <li><b>Outage</b> (the stream cannot be declared, a send fails, the confirm timeout passes, or a confirm fails for a
  *       reason that is not about the message): the transaction rolls back, nothing is stamped or counted, and the
  *       next tick polls the same rows again. Messages already confirmed are then sent twice, which consumers absorb:
  *       every event is a full snapshot with the key's {@code version}.</li>
@@ -112,7 +113,6 @@ public class OutboxRelay {
             }
         }
 
-        long deadline = System.nanoTime() + properties.confirmTimeout().toNanos();
         List<CompletableFuture<Boolean>> confirms = new ArrayList<>();
         try {
             for (Pending pending : sendable)
@@ -121,25 +121,30 @@ public class OutboxRelay {
             return outage(status, "a send failed: " + e);
         }
 
+        // Wait once for all the confirms (like Promise.allSettled), at most confirmTimeout in total.
+        if (!waitForAll(confirms, properties.confirmTimeout()))
+            return outage(status, "publish confirms did not arrive within " + properties.confirmTimeout());
+
+        // Every confirm has an answer now, so nothing below waits.
         List<Pending> confirmed = new ArrayList<>();
         List<Failure> failures = new ArrayList<>();
         for (int i = 0; i < sendable.size(); i++) {
             Pending pending = sendable.get(i);
-            try {
-                long remaining = Math.max(0, deadline - System.nanoTime());
-                if (Boolean.TRUE.equals(confirms.get(i).get(remaining, TimeUnit.NANOSECONDS)))
-                    confirmed.add(pending);
-                else
-                    failures.add(new Failure(pending.row(), "Broker did not confirm the message"));
-            } catch (TimeoutException e) {
-                return outage(status, "publish confirms did not arrive within " + properties.confirmTimeout());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return outage(status, "interrupted while waiting for publish confirms");
-            } catch (ExecutionException e) {
-                if (!(e.getCause() instanceof ProjectionRefusedException refused))
-                    return outage(status, "a publish was not confirmed: " + e.getCause());
-                failures.add(new Failure(pending.row(), refused.getMessage()));
+            CompletableFuture<Boolean> confirm = confirms.get(i);
+
+            if (confirm.isCompletedExceptionally()) {
+                Throwable error = confirm.exceptionNow();
+                if (error instanceof ProjectionRefusedException) {
+                    // The broker said no to this message: record it, and the relay halts.
+                    failures.add(new Failure(pending.row(), error.getMessage()));
+                } else {
+                    // A connection problem: cancel the batch and try again next tick.
+                    return outage(status, "a publish was not confirmed: " + error);
+                }
+            } else if (Boolean.TRUE.equals(confirm.resultNow())) {
+                confirmed.add(pending);
+            } else {
+                failures.add(new Failure(pending.row(), "Broker did not confirm the message"));
             }
         }
         if (unpublishable != null)
@@ -154,6 +159,29 @@ public class OutboxRelay {
             store.recordFailure(failure.row(), failure.error());
         Failure first = failures.getFirst();
         return new Halt(first.row().getEventId(), first.row().getEventType(), first.error());
+    }
+
+    /**
+     * Waits until every future has finished, whether it succeeded or failed, but no longer than {@code timeout}.
+     * Returns true if all of them finished in time, false if the time ran out. Java's version of
+     * {@code Promise.allSettled} with a timeout.
+     */
+    private static boolean waitForAll(List<CompletableFuture<Boolean>> futures, Duration timeout) {
+        CompletableFuture<?>[] futureArray = futures.toArray(new CompletableFuture<?>[0]); // allOf takes an array
+        CompletableFuture<Void> allSettled = CompletableFuture.allOf(futureArray);        // done when all are done
+        try {
+            allSettled.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            return true;
+        } catch (ExecutionException oneOfThemFailed) {
+            // allOf still waited for every future to finish; one just ended with an error. Each error is looked at
+            // by the caller.
+            return true;
+        } catch (TimeoutException timeIsUp) {
+            return false;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private static Halt outage(TransactionStatus status, String reason) {

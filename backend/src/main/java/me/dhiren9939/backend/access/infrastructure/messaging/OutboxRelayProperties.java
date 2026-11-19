@@ -13,8 +13,8 @@ import java.time.Duration;
  * @param partitions     partitions of the super stream; a key always hashes to the same one
  * @param batchSize      rows taken per tick
  * @param pollInterval   pause between the end of one tick and the start of the next
- * @param confirmTimeout one deadline for the whole batch's publish confirms, counted from the first send; when it
- *                       passes the batch is cancelled
+ * @param confirmTimeout how long to wait, in total, for the whole batch's publish confirms once every message has
+ *                       been sent; when it passes the batch is cancelled
  */
 @ConfigurationProperties("access.outbox.relay")
 public record OutboxRelayProperties(
