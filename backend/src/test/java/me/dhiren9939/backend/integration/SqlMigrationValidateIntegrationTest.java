@@ -61,7 +61,6 @@ class SqlMigrationValidateIntegrationTest {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V5__outbox_relay.sql"));
         }
 
-        registry.add("access.outbox.relay.enabled", () -> "false");
         registry.add("spring.datasource.url", () -> url);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
