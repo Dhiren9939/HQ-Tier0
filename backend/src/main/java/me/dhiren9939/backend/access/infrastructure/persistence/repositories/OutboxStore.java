@@ -37,15 +37,17 @@ public class OutboxStore {
         return outbox.lockPending(limit);
     }
 
-    /** Stamps rows the broker confirmed, in the column and in the stored payload. */
-    public void markEmitted(List<EventOutboxEntity> rows, Instant at) {
-        rows.forEach(row -> row.emitted(at, serializer.withEmittedAt(row.getPayload(), at)));
+    /**
+     * Stamps a row the broker confirmed: {@code emitted_at} and the stored payload become the time and the exact body
+     * that was published ({@link IntegrationEventSerializer#withEmittedAt} with the same {@code at}).
+     */
+    public void markEmitted(EventOutboxEntity row, Instant at, String publishedBody) {
+        row.emitted(at, publishedBody);
     }
 
-    /** Records a refused attempt and returns how many there have been. */
-    public int recordFailure(EventOutboxEntity row, String error) {
+    /** Records why the row could not be published: {@code attempts + 1} and {@code last_error}, for diagnosis only. */
+    public void recordFailure(EventOutboxEntity row, String error) {
         row.setAttempts(row.getAttempts() + 1);
         row.setLastError(error);
-        return row.getAttempts();
     }
 }

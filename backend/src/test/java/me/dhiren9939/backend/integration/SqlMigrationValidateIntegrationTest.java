@@ -67,6 +67,7 @@ class SqlMigrationValidateIntegrationTest {
         registry.add("spring.datasource.url", () -> url);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("access.outbox.relay.enabled", () -> "false");
     }
 
     @Value("${spring.jpa.hibernate.ddl-auto}") String ddlAuto;

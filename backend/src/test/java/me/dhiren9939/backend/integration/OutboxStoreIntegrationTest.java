@@ -3,6 +3,7 @@ package me.dhiren9939.backend.integration;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
 import me.dhiren9939.backend.access.infrastructure.persistence.repositories.OutboxStore;
+import me.dhiren9939.backend.access.infrastructure.serialization.IntegrationEventSerializer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,10 +23,15 @@ class OutboxStoreIntegrationTest extends AccessIntegrationTest {
     private static final Instant T0 = Instant.parse("2026-01-15T12:00:00Z");
 
     @Autowired OutboxStore store;
+    @Autowired IntegrationEventSerializer serializer;
     @Autowired PlatformTransactionManager transactionManager;
 
     private <T> T inTransaction(java.util.function.Supplier<T> work) {
         return new TransactionTemplate(transactionManager).execute(status -> work.get());
+    }
+
+    private void emit(EventOutboxEntity row, Instant at) {
+        store.markEmitted(row, at, serializer.withEmittedAt(row.getPayload(), at));
     }
 
     private UUID issueAt(Instant at, String name) {
@@ -44,7 +50,7 @@ class OutboxStoreIntegrationTest extends AccessIntegrationTest {
         assertThat(firstTwo).containsExactly(earliest, middle);
 
         inTransaction(() -> {
-            store.markEmitted(store.lockPending(1), T0.plusSeconds(30));
+            emit(store.lockPending(1).getFirst(), T0.plusSeconds(30));
             return null;
         });
 
@@ -76,7 +82,7 @@ class OutboxStoreIntegrationTest extends AccessIntegrationTest {
         Instant at = T0.plusSeconds(30);
 
         inTransaction(() -> {
-            store.markEmitted(store.lockPending(1), at);
+            emit(store.lockPending(1).getFirst(), at);
             return null;
         });
 
@@ -92,9 +98,11 @@ class OutboxStoreIntegrationTest extends AccessIntegrationTest {
     void recordFailurePersists() {
         issueAt(T0, "k");
 
-        int attempts = inTransaction(() -> store.recordFailure(store.lockPending(1).getFirst(), "refused"));
+        inTransaction(() -> {
+            store.recordFailure(store.lockPending(1).getFirst(), "refused");
+            return null;
+        });
 
-        assertThat(attempts).isEqualTo(1);
         assertThat(jdbc.queryForObject("select attempts from access.outbox", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select last_error from access.outbox", String.class)).isEqualTo("refused");
     }

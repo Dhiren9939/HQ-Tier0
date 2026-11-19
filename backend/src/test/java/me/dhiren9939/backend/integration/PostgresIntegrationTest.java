@@ -31,5 +31,6 @@ public abstract class PostgresIntegrationTest {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("access.outbox.relay.enabled", () -> "false"); // no broker here; rows stay in the outbox
     }
 }
