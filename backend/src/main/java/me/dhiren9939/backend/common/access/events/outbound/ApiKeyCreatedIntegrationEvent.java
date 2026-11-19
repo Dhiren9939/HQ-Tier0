@@ -18,6 +18,12 @@ public record ApiKeyCreatedIntegrationEvent(String apiKeyName, UUID apiKeyId, lo
 
     public static final String EVENT_TYPE = "apiKey.projection.create";
 
+    /** Refuses, naming the field, anything the published contract does not allow. */
+    public ApiKeyCreatedIntegrationEvent {
+        permissions = IntegrationEventRules.check(EVENT_TYPE, apiKeyName, apiKeyId, version, occurredAt, userId, accessId,
+                accessSecretHash, permissions, createdAt, expiresAt);
+    }
+
     @Override
     public String eventType() {
         return EVENT_TYPE;

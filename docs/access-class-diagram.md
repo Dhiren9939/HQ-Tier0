@@ -307,11 +307,11 @@ How to read it:
 | Ports | `IssueCredentialPort`, `CredentialVerifier` | What the use cases need from infrastructure, apart from storage. |
 | ApiKey aggregate | `ApiKey` | Every business rule. A change applies at once, bumps the revision and registers an event. |
 | Value types | `Permissions`, `PermissionChanges`, `ApiKeyChanges`, `Scope`, `AccessLevel`, `Lifetime`, `ApiKeyState`, `IssuedCredential` | Immutable pieces of the aggregate. |
-| Domain events | `ApiKeyEvent` (sealed), `ApiKeyCreated`, `ApiKeyUpdated`, `ApiKeyDeleted` | A full snapshot of the key at each revision. |
+| Domain events | `ApiKeyEvent` (sealed), `ApiKeyCreated`, `ApiKeyUpdated`, `ApiKeyDeleted` | A full snapshot of the key at each revision. Checked when created (`ApiKeyEventRules`): nothing null, text non-blank and at most 256 characters, `version` at least 1, `occurredAt` not before `createdAt`, `expiresAt` null or after `createdAt`. |
 | ApiKeys | `ApiKeys` | The storage contract the domain defines. |
 | Domain exceptions | `ApiKeyNotFoundException`, `ApiKeyUpdateFailure`, `UpdateFailureCode`, `InvalidPermissionsException` | The error handlers map these to 404 / 409 / 400. |
 | Verification contract | `ApiKeyVerificationFacade`, `VerifyApiKeyQuery`, `ApiKeyVerifyResult`, `common.access.ApiKeyView`, `VerificationFailureCode` | What other modules call, and what they get back. |
-| Integration events | `ApiKeyIntegrationEvent` (sealed), `ApiKeyCreated/Updated/DeletedIntegrationEvent` | The published event contract (`apiKey.projection.*`). |
+| Integration events | `ApiKeyIntegrationEvent` (sealed), `ApiKeyCreated/Updated/DeletedIntegrationEvent` | The published event contract (`apiKey.projection.*`). Checked when created (`IntegrationEventRules`) with the same rules, plus `INGESTION` only allows `WRITE`; `IntegrationEventSerializer` then validates the whole JSON (exact keys, canonical UUIDs and instants, only `expiresAt` nullable) before it is stored and again before it is published. |
 | ApiKeysAdapter | `ApiKeysAdapter`, `JpaApiKeyRepository` | Implements `ApiKeys` and writes outbox rows after each save or delete. |
 | Outbox | `EventOutboxEntity`, `EventOutboxRepository` | The `access.outbox` table. |
 | OutboxStore | `OutboxStore`, `DeadLetterEntity`, `DeadLetterRepository` | What the relay may do with rows: lock them, stamp them as emitted, count failures and dead-letter them. |

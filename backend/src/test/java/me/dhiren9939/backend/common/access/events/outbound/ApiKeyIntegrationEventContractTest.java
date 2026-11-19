@@ -4,7 +4,10 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -81,8 +84,16 @@ class ApiKeyIntegrationEventContractTest {
 
     @Test
     void eventTypeMatchesConstant() {
-        assertThat(ApiKeyCreatedIntegrationEvent.builder().build().eventType()).isEqualTo("apiKey.projection.create");
-        assertThat(ApiKeyUpdatedIntegrationEvent.builder().build().eventType()).isEqualTo("apiKey.projection.update");
-        assertThat(ApiKeyDeletedIntegrationEvent.builder().build().eventType()).isEqualTo("apiKey.projection.delete");
+        Instant at = Instant.parse("2026-01-15T11:00:00Z");
+        UUID id = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        assertThat(ApiKeyCreatedIntegrationEvent.builder().apiKeyName("n").apiKeyId(id).version(1).occurredAt(at)
+                .userId(id).accessId("a").accessSecretHash("h").permissions(Map.of()).createdAt(at).build().eventType())
+                .isEqualTo("apiKey.projection.create");
+        assertThat(ApiKeyUpdatedIntegrationEvent.builder().apiKeyName("n").apiKeyId(id).version(1).occurredAt(at)
+                .userId(id).accessId("a").accessSecretHash("h").permissions(Map.of()).createdAt(at).build().eventType())
+                .isEqualTo("apiKey.projection.update");
+        assertThat(ApiKeyDeletedIntegrationEvent.builder().apiKeyName("n").apiKeyId(id).version(1).occurredAt(at)
+                .userId(id).accessId("a").accessSecretHash("h").permissions(Map.of()).createdAt(at).build().eventType())
+                .isEqualTo("apiKey.projection.delete");
     }
 }
