@@ -90,7 +90,8 @@ class ArchitectureTest {
     void useCaseInterfacesAreOnlyImplementedByHandlers() {
         ArchRule rule = classes().that().implement(
                         com.tngtech.archunit.base.DescribedPredicate.describe("a use case interface",
-                                c -> c.getPackageName().contains("application.usecase") && c.isInterface()))
+                                c -> c.getPackageName().startsWith(ROOT + ".access.application.usecase")
+                                        && c.isInterface()))
                 .should().resideInAPackage(ROOT + ".access.application.usecase..");
         rule.check(mainClasses);
     }
@@ -151,6 +152,18 @@ class ArchitectureTest {
                 .check(mainClasses);
         noClasses().that().haveSimpleName("ApiKeyInternalController").or().haveSimpleName("ApiKeyFacadeImpl")
                 .should().dependOnClassesThat().resideInAPackage(USER_USE_CASES)
+                .check(mainClasses);
+    }
+
+    @Test
+    void accessAndIngestionNeverDependOnEachOther() {
+        noClasses().that().resideInAPackage(ROOT + ".access..")
+                .should().dependOnClassesThat().resideInAPackage(ROOT + ".ingestion..")
+                .because("contexts only meet through the published contracts in common")
+                .check(mainClasses);
+        noClasses().that().resideInAPackage(ROOT + ".ingestion..")
+                .should().dependOnClassesThat().resideInAPackage(ROOT + ".access..")
+                .because("contexts only meet through the published contracts in common")
                 .check(mainClasses);
     }
 
