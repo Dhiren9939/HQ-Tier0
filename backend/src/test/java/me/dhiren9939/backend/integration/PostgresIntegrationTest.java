@@ -20,9 +20,9 @@ public abstract class PostgresIntegrationTest {
     public static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17");
 
     static {
-        // Same pin as BackendApplication.main: the JVM may report the deprecated alias "Asia/Calcutta",
-        // which the Postgres server rejects when the JDBC driver sends it as the session time zone.
-        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Kolkata"));
+        // Same pin as BackendApplication.main (Maven also starts the test JVM with -Duser.timezone=UTC);
+        // this covers runs from an IDE.
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
         POSTGRES.start();
     }
 

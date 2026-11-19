@@ -13,13 +13,14 @@ import java.util.TimeZone;
 public class BackendApplication {
 
 	public static void main(String[] args) {
-		// The JVM reports the OS timezone as the deprecated alias "Asia/Calcutta";
-		// Postgres no longer recognizes it and rejects the JDBC connection outright.
+		// The backend runs in UTC whatever the host's zone: timestamps in the database, in logs and in
+		// published events are all UTC. It also avoids the OS reporting a deprecated alias such as
+		// "Asia/Calcutta", which Postgres rejects as a JDBC session time zone.
 		// TimeZone.setDefault (not System.setProperty) is required: something
 		// (e.g. the static Logger field above triggering Logback init) may have
 		// already cached TimeZone.getDefault() by this point, and a system
 		// property change alone would not retroactively update that cache.
-		TimeZone.setDefault(TimeZone.getTimeZone("Asia/Kolkata"));
+		TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
 		log.info("JVM default timezone pinned to {}", TimeZone.getDefault().getID());
 		SpringApplication.run(BackendApplication.class, args);
 	}
