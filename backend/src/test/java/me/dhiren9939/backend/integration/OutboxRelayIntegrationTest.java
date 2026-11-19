@@ -15,12 +15,14 @@ import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Scope;
 import me.dhiren9939.backend.access.infrastructure.messaging.OutboxRelay;
+import me.dhiren9939.backend.access.infrastructure.messaging.OutboxRelayHealth;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.amqp.autoconfigure.EnvironmentBuilderCustomizer;
+import org.springframework.boot.health.contributor.Status;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -95,6 +97,7 @@ class OutboxRelayIntegrationTest {
     @Autowired MutableClock clock;
     @Autowired Environment streams;
     @Autowired OutboxRelay relay;
+    @Autowired OutboxRelayHealth health;
     @Autowired IssueApiKeyUseCase issueApiKey;
     @Autowired UpdateApiKeyUseCase updateApiKey;
     @Autowired DeleteApiKeyUseCase deleteApiKey;
@@ -202,6 +205,57 @@ class OutboxRelayIntegrationTest {
 
         await(Duration.ofSeconds(90), () -> pending() == 0);
         assertThat(relay.halt()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a broker restart fails confirms with error codes; that is an outage, never a halt")
+    void survivesABrokerRestart() throws Exception {
+        UUID owner = UUID.randomUUID();
+        issue(owner, "before");
+        await(Duration.ofSeconds(30), () -> pending() == 0);
+
+        assertThat(RABBIT.execInContainer("rabbitmqctl", "stop_app").getExitCode()).isZero();
+        try {
+            UUID key = issue(owner, "during");
+            rename(owner, key, "during-renamed");
+            sleep(Duration.ofSeconds(5));
+            assertThat(pending()).isEqualTo(2);
+        } finally {
+            assertThat(RABBIT.execInContainer("rabbitmqctl", "start_app").getExitCode()).isZero();
+        }
+
+        await(Duration.ofSeconds(90), () -> pending() == 0 || relay.halt().isPresent());
+        assertThat(relay.halt()).as("halted on %s", jdbc.queryForList(
+                "select last_error from access.outbox where last_error is not null", String.class)).isEmpty();
+        assertThat(jdbc.queryForObject("select coalesce(max(attempts), 0) from access.outbox", Integer.class)).isZero();
+    }
+
+    @Test
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD) // the halt lasts for the context's life
+    @DisplayName("a stored payload that breaks the contract is recorded on its row and halts the relay")
+    void haltsOnAnUnpublishableRow() {
+        UUID owner = UUID.randomUUID();
+        UUID good = issue(owner, "good");
+        UUID brokenEventId = UUID.randomUUID();
+        jdbc.update("insert into access.outbox (event_id, event_type, api_key_id, change_version, occurred_at, payload, attempts) "
+                + "values (?, 'apiKey.projection.update', ?, 2, now() + interval '1 hour', '{\"broken\": true}'::jsonb, 0)",
+                brokenEventId, good);
+
+        await(Duration.ofSeconds(30), () -> relay.halt().isPresent());
+
+        assertThat(relay.halt()).hasValueSatisfying(halt -> assertThat(halt.eventId()).isEqualTo(brokenEventId));
+        assertThat(jdbc.queryForObject("select emitted_at is not null from access.outbox where api_key_id = ? "
+                + "and event_id <> ?", Boolean.class, good, brokenEventId)).as("the row before it was published").isTrue();
+        Map<String, Object> broken = jdbc.queryForMap(
+                "select emitted_at, attempts, last_error from access.outbox where event_id = ?", brokenEventId);
+        assertThat(broken.get("emitted_at")).isNull();
+        assertThat(broken.get("attempts")).isEqualTo(1);
+        assertThat((String) broken.get("last_error")).startsWith("Unpublishable");
+        assertThat(health.health().getStatus()).isEqualTo(Status.DOWN);
+
+        issue(owner, "after the halt");
+        sleep(Duration.ofSeconds(2));
+        assertThat(pending()).as("nothing is published while halted").isEqualTo(2);
     }
 
     private record Received(int partition, UUID eventId, UUID apiKeyId, long version, JsonNode body) {
