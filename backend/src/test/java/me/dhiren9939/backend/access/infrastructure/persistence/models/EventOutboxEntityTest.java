@@ -75,24 +75,4 @@ class EventOutboxEntityTest {
         assertThat(row.getEmittedAt()).isEqualTo(at);
         assertThat(row.getPayload()).isEqualTo("{\"sent\":true}");
     }
-
-    @Test
-    void aDeadLetterKeepsTheRowsMetadataPayloadAndFailureHistory() {
-        EventOutboxEntity row = EventOutboxEntity.builder().eventId(EVENT_ID).eventType("apiKey.projection.update")
-                .apiKeyId(API_KEY_ID).version(4).occurredAt(OCCURRED_AT).payload(PAYLOAD)
-                .attempts(10).lastError("refused").build();
-        Instant deadAt = Instant.parse("2026-01-15T13:00:00Z");
-
-        DeadLetterEntity dead = DeadLetterEntity.of(row, deadAt);
-
-        assertThat(dead.getEventId()).isEqualTo(EVENT_ID);
-        assertThat(dead.getEventType()).isEqualTo("apiKey.projection.update");
-        assertThat(dead.getApiKeyId()).isEqualTo(API_KEY_ID);
-        assertThat(dead.getVersion()).isEqualTo(4);
-        assertThat(dead.getOccurredAt()).isEqualTo(OCCURRED_AT);
-        assertThat(dead.getPayload()).isEqualTo(PAYLOAD);
-        assertThat(dead.getAttempts()).isEqualTo(10);
-        assertThat(dead.getLastError()).isEqualTo("refused");
-        assertThat(dead.getDeadAt()).isEqualTo(deadAt);
-    }
 }

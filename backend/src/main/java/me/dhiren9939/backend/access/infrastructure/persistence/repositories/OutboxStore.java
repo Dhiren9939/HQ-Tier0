@@ -2,7 +2,6 @@ package me.dhiren9939.backend.access.infrastructure.persistence.repositories;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import lombok.RequiredArgsConstructor;
-import me.dhiren9939.backend.access.infrastructure.persistence.models.DeadLetterEntity;
 import me.dhiren9939.backend.access.infrastructure.persistence.models.EventOutboxEntity;
 import me.dhiren9939.backend.access.infrastructure.serialization.IntegrationEventSerializer;
 import me.dhiren9939.backend.common.access.events.outbound.ApiKeyIntegrationEvent;
@@ -14,7 +13,7 @@ import java.util.UUID;
 
 /**
  * The outbox. The persistence adapter {@link #append appends} events in the transaction that changes the key. A relay
- * locks, stamps, fails and dead-letters rows: those methods must run inside the relay's transaction, because the rows
+ * locks, stamps and fails rows: those methods must run inside the relay's transaction, because the rows
  * {@link #lockPending(int)} returns stay locked and the others change those managed rows in place, so the changes are
  * written when the transaction commits.
  */
@@ -22,7 +21,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OutboxStore {
     private final EventOutboxRepository outbox;
-    private final DeadLetterRepository deadLetters;
     private final IntegrationEventSerializer serializer;
 
     /**
@@ -49,12 +47,5 @@ public class OutboxStore {
         row.setAttempts(row.getAttempts() + 1);
         row.setLastError(error);
         return row.getAttempts();
-    }
-
-    /** Moves the row out of the outbox into the dead-letter table, in the same transaction. */
-    public void deadLetter(EventOutboxEntity row, String error, Instant at) {
-        row.setLastError(error);
-        deadLetters.save(DeadLetterEntity.of(row, at));
-        outbox.delete(row);
     }
 }

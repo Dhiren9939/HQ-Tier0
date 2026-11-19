@@ -16,9 +16,7 @@ class AccessSchemaIntegrationTest extends AccessIntegrationTest {
                     "api_key_name", "created_at", "expires_at", "revision"),
             "api_key_permissions", List.of("api_key_id", "scope", "access_level"),
             "outbox", List.of("event_id", "event_type", "api_key_id", "change_version", "occurred_at", "emitted_at",
-                    "payload", "attempts", "last_error"),
-            "outbox_dead_letter", List.of("event_id", "event_type", "api_key_id", "change_version", "occurred_at",
-                    "payload", "attempts", "last_error", "dead_at"));
+                    "payload", "attempts", "last_error"));
 
     @Test
     @DisplayName("schema `access` exists and nothing was created in `public`")

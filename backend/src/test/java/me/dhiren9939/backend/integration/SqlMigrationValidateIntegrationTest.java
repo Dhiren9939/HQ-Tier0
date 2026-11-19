@@ -61,6 +61,7 @@ class SqlMigrationValidateIntegrationTest {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V5__outbox_relay.sql"));
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V6__outbox_payload_jsonb.sql"));
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V7__text_columns_256.sql"));
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db.migration/access/V8__drop_outbox_dead_letter.sql"));
         }
 
         registry.add("spring.datasource.url", () -> url);

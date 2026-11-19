@@ -100,28 +100,6 @@ class OutboxStoreIntegrationTest extends AccessIntegrationTest {
     }
 
     @Test
-    @DisplayName("dead-lettering moves the row out of the outbox in one transaction")
-    void deadLetterMovesTheRow() {
-        UUID key = issueAt(T0, "doomed");
-
-        inTransaction(() -> {
-            EventOutboxEntity row = store.lockPending(1).getFirst();
-            store.recordFailure(row, "refused");
-            store.deadLetter(row, "gave up", T0.plusSeconds(5));
-            return null;
-        });
-
-        assertThat(count("access.outbox")).isZero();
-        assertThat(jdbc.queryForMap("select api_key_id, change_version, attempts, last_error, dead_at, "
-                + "payload->>'accessSecretHash' as access_secret_hash from access.outbox_dead_letter"))
-                .containsEntry("api_key_id", key)
-                .containsEntry("change_version", 1L)
-                .containsEntry("attempts", 1)
-                .containsEntry("last_error", "gave up")
-                .satisfies(row -> assertThat(row.get("access_secret_hash")).isNotNull());
-    }
-
-    @Test
     @DisplayName("rows another transaction has locked are skipped, not waited for")
     void lockedRowsAreSkipped() throws Exception {
         UUID first = issueAt(T0, "first");
