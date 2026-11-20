@@ -16,7 +16,7 @@
   <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=black" />
   <img alt="PostgreSQL" src="https://img.shields.io/badge/postgres-17-4169E1?logo=postgresql&logoColor=white" />
   <img alt="Redis" src="https://img.shields.io/badge/redis-cache-DC382D?logo=redis&logoColor=white" />
-  <img alt="RabbitMQ" src="https://img.shields.io/badge/rabbitmq-queue-FF6600?logo=rabbitmq&logoColor=white" />
+  <img alt="RabbitMQ" src="https://img.shields.io/badge/rabbitmq-streams-FF6600?logo=rabbitmq&logoColor=white" />
 </p>
 
 ## Tiered approach
@@ -27,23 +27,35 @@ validate the core architecture (auth, ingestion, queuing, delivery) end-to-end. 
 
 ## Structure
 
-- **`backend/`** — Spring Boot modular monolith (Java 25). Handles auth (Google OAuth2 login via a
-  cookie-based BFF flow with JWT access tokens and multi-device refresh sessions), user
-  profiles, and API key management. Runs on port `8081`.
-- **`frontend/`** — React Router app (React 19, Tailwind CSS 4, Radix UI). Runs on port `5173`.
-- **`docker-compose.yml`** — Local infrastructure: Postgres 17 (`maindb`), Redis, and RabbitMQ
-  (the event queue).
+- **`backend/`**: Spring Boot modular monolith (Java 25), to be split into services later. Runs on
+  port `8080`.
+  - **Access**: issues and manages API keys, and publishes every change through a transactional
+    outbox to the RabbitMQ super stream `apikey.projections`.
+  - **Ingestion** (in progress): its own projection of the API keys, built from those events. The
+    projection logic exists; the stream consumer and persistence come next.
+  - **`common`**: the published event contracts only.
+  - There is no authentication yet (Identity is not built): the API key endpoints take the user id
+    in the path.
+- **`frontend/`**: React Router app (React 19, Tailwind CSS 4, Radix UI). Runs on port `5173`.
+  It comes from an earlier iteration; its Google sign-in and user profile calls have no backend
+  yet.
+- **`docker-compose.yml`**: local infrastructure, as follows.
+  - Postgres 17 (container `maindb`).
+  - RabbitMQ with the stream plugin.
+  - Redis, which the backend does not use yet.
 
 ## Documentation
 
-- [Access: components, interactions and transaction scopes](docs/access-class-diagram.md)
 - [Context map](docs/context-map.md)
+- [Access: components, interactions and transaction scopes](docs/access-class-diagram.md)
+- [Ingestion: the API key projection](docs/ingestion-class-diagram.md)
+- [Postman collection for the Access API](docs/postman/HQ-Access.postman_collection.json)
 
 ## Prerequisites
 
 - Java 25 (the backend ships its own Maven wrapper, so no separate Maven install is needed)
 - Node.js + npm
-- Docker
+- Docker (also needed by the integration tests, which use Testcontainers)
 
 ## Getting started
 
@@ -53,41 +65,55 @@ validate the core architecture (auth, ingestion, queuing, delivery) end-to-end. 
 docker compose up -d
 ```
 
-This starts Postgres (`localhost:5432`, db `maindb`), Redis (`localhost:6379`), and RabbitMQ
-(`localhost:5672`, management UI on `localhost:15672`).
+This starts:
+
+| Service | Address | Credentials and notes |
+|---|---|---|
+| Postgres | `localhost:5432` | database `postgres`, user `postgres` / `postgres` |
+| RabbitMQ | AMQP on `localhost:5672`, streams on `localhost:5552`, management UI on `localhost:15672` | `guest` / `guest` |
+| Redis | `localhost:6379` | |
 
 ### 2. Apply the database schema
 
-`backend` uses `spring.jpa.hibernate.ddl-auto=none`, so the schema is applied by hand:
+The SQL migrations in `backend/src/main/resources/db.migration/access` are applied by hand, in
+order. There is no Flyway; `SqlMigrationValidateIntegrationTest` checks that they match the
+entities.
 
 ```sh
-psql -h localhost -U postgres -d maindb -f backend/schema/root.sql
+for f in backend/src/main/resources/db.migration/access/V*.sql; do
+  docker exec -i maindb psql -U postgres -d postgres -v ON_ERROR_STOP=1 < "$f"
+done
 ```
 
-### 3. Configure the API
+On a database that already has some of them, apply only the new ones. The backend also runs
+with `spring.jpa.hibernate.ddl-auto=update`, so Hibernate creates the schemas and anything
+missing at startup.
 
-```sh
-cd backend
-cp .env.example .env
-```
-
-Fill in `.env`:
-
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth2 client credentials
-- `JWT_SECRET` — a base64-encoded 256-bit HMAC key, e.g. `openssl rand -base64 32`
-
-### 4. Run the API
+### 3. Run the backend
 
 ```sh
 cd backend
 ./mvnw spring-boot:run
 ```
 
-The API listens on `http://localhost:8081` and every endpoint is served under `/api/v1`. API docs
-are served under `/api/v1/public` (which is permitAll in `SecurityConfig`):
+- **API:** `http://localhost:8080`. API keys are under `/api/v1/user/{userId}/apikey` (create,
+  get, update, delete); see the Postman collection.
+- **Health:** `http://localhost:8080/actuator/health`. It reports DOWN if the outbox relay has
+  halted.
+- **Outbox relay:** on by default (`access.outbox.relay.*` in `application.properties`). It
+  creates the `apikey.projections` super stream on its first tick.
+- **Time zone:** the backend runs in UTC.
+- **Configuration:** everything is in `backend/src/main/resources/application.properties`.
+  There are no profiles.
 
-- Swagger UI: `http://localhost:8081/api/v1/public/swagger-ui.html`
-- OpenAPI JSON: `http://localhost:8081/api/v1/public/v3/api-docs`
+### 4. Run the tests
+
+```sh
+cd backend
+./mvnw test
+```
+
+Integration tests start their own Postgres and RabbitMQ containers, so Docker must be running.
 
 ### 5. Run the frontend
 
@@ -97,11 +123,10 @@ npm install
 npm run dev
 ```
 
-The frontend runs on `http://localhost:5173` and expects the API's post-login redirect to land
-on `/dashboard` (configured via `app.frontend-post-login-url` / `app.frontend-login-url` in
-`backend/src/main/resources/application-dev.properties`).
+The frontend runs on `http://localhost:5173` and proxies `/api` to the backend on
+`http://localhost:8080` (see `frontend/vite.config.ts`).
 
 ## Notes
 
-- Real secrets must never be committed to `backend/src/main/resources/application*.properties`;
-  they're injected via `backend/.env` (git-ignored).
+- Real secrets must never be committed to `backend/src/main/resources/application*.properties`.
+  The only credentials there today are the local Docker defaults.
