@@ -94,6 +94,7 @@ classDiagram
         <<application>>
         +IssueCredentialPort.issue() IssuedCredential
         +CredentialVerifier.supports(keyFormat) boolean
+        +CredentialVerifier.isWellFormed(accessId, secret) boolean
         +CredentialVerifier.matches(secret, storedHash) boolean
     }
 
@@ -210,7 +211,7 @@ classDiagram
     ApiKeyView --> Aggregate : getters / state(now)
 
     %% verify use case
-    VerifyUseCase --> Ports : supports(keyFormat) / matches(secret, hash)
+    VerifyUseCase --> Ports : supports(keyFormat) / isWellFormed(accessId, secret) / matches(secret, hash)
     VerifyUseCase --> ApiKeys : findByAccessId(accessId)
     VerifyUseCase --> Aggregate : getAccessSecretHash() / canAuthenticate(now)
 
@@ -300,7 +301,7 @@ How to read it:
 | Error handlers | `ApiKeyExceptionHandler`, `WebExceptionHandler`, `ApiProblems` | Turn exceptions into problem+json bodies that carry a `code`. |
 | ApiKeyFacadeImpl | `ApiKeyFacadeImpl` | In-process verification for other modules. |
 | Owner use cases | For each operation: `*UseCase`, `*Command`/`*Query` and a package-private `*Handler`; plus `IssuedApiKeyResult` | One package per operation under `application/usecase/user/`. |
-| Verify use case | `VerifyApiKeyUseCase`, `VerifyApiKeyHandler`, `ParsedApiKey`, `VerifiedApiKey`, `ApiKeyVerificationFailure` | Checks a credential. Lives under `application/usecase/service/`. |
+| Verify use case | `VerifyApiKeyUseCase`, `VerifyApiKeyHandler`, `ParsedApiKey`, `LoggedIdentifier`, `VerifiedApiKey`, `ApiKeyVerificationFailure` | Checks a credential. Lives under `application/usecase/service/`. |
 | RetriedTransaction | `RetriedTransaction`, `OptimisticLockRetry` | Opens a new transaction for each attempt and retries when another writer changed the key first. |
 | ApiKeyView | `application/model/ApiKeyView` | The secret-free read model that the owner use cases return. |
 | Event mapper | `ApiKeyIntegrationEventMapper`, `DefaultApiKeyIntegrationEventMapper` | Maps a domain event to an integration event. This is where to encode or encrypt fields. |
@@ -318,7 +319,7 @@ How to read it:
 | IntegrationEventSerializer | `IntegrationEventSerializer`, `IntegrationEventSerializationException` | Writes the event as the JSON body and checks it against the whole contract, before it is stored (`toJson`) and again before it is published (`withEmittedAt`). |
 | OutboxRelay | `OutboxRelay`, `OutboxRelayHealth`, `OutboxRelayProperties` | Every 2 seconds publishes up to 100 pending rows with publisher confirms. Cancels the batch on a broker outage; halts (health DOWN) on a refused or unpublishable row. Never retries. |
 | ProjectionStream | `ProjectionStream`, `RabbitProjectionStream`, `ProjectionMessages`, `ProjectionRefusedException`, `ProjectionUnavailableException` | The super stream, routed by `apiKeyId`. Builds the message and tells a broker refusal from an outage. |
-| Key formats | `CredentialIssuer`, `V1CredentialIssuer`, `V1CredentialVerifier`, `Sha256SecretHasher`, `SortableEncoder` | Generates and checks credentials. |
+| Key formats | `CredentialIssuer`, `V1CredentialIssuer`, `V1CredentialVerifier`, `V1KeyShape`, `Sha256SecretHasher`, `SortableEncoder` | Generates and checks credentials. Each format owns the exact shape of its keys. |
 | Config | `ApiKeyConfig`, `OutboxRelayConfig`, `BackendApplication` | Wiring: the clock, the current key format and the relay. |
 
 ### Calls per operation, in order
@@ -331,7 +332,7 @@ The diagram shows who calls whom. This table shows the order of those calls for 
 | **Get** (`GET`) | Controller → `GetApiKeyUseCase.handle()` (read-only transaction) → `ApiKeys.requireOwned()` → `ApiKey.isOwnedBy()` → `ApiKeyView.of()` → `ApiKey.state(now)` |
 | **Update** (`PATCH`) | Controller → `UpdateApiKeyUseCase.handle()` → `RetriedTransaction.execute()` (new transaction per attempt, up to 2 retries) → `ApiKeys.requireOwned()` → `ApiKey.update(changes, now)` → `PermissionChanges.applyTo()` / `Lifetime.expiryFrom()`. If something changed: registers `ApiKeyUpdated` → `ApiKeys.save()` → same outbox write as Issue. Then `ApiKeyView.of()` |
 | **Delete** (`DELETE`) | Controller → `DeleteApiKeyUseCase.handle()` → `RetriedTransaction.execute()` → `ApiKeys.requireOwned()` → `ApiKey.delete(now)` (registers `ApiKeyDeleted`) → `ApiKeys.delete()` → ApiKeysAdapter: JPA delete, then the same outbox write |
-| **Verify** (other module) | `ApiKeyVerificationFacade.verifyApiKey()` → ApiKeyFacadeImpl → `VerifyApiKeyUseCase.handle()` → `ParsedApiKey.parse()` → `CredentialVerifier.supports(format)` → `ApiKeys.findByAccessId()` → `CredentialVerifier.matches(secret, hash)` → `ApiKey.canAuthenticate(now)` → `VerifiedApiKey` → facade: permissions as a scope-to-level map → `Success`. Any `ApiKeyVerificationFailure` → `Failure(code, message)` |
+| **Verify** (other module) | `ApiKeyVerificationFacade.verifyApiKey()` → ApiKeyFacadeImpl → `VerifyApiKeyUseCase.handle()` → `ParsedApiKey.parse()` → `CredentialVerifier.supports(format)` → `CredentialVerifier.isWellFormed(accessId, secret)` → `ApiKeys.findByAccessId()` → `CredentialVerifier.matches(secret, hash)` → `ApiKey.canAuthenticate(now)` → `VerifiedApiKey` → facade: permissions as a scope-to-level map → `Success`. Any `ApiKeyVerificationFailure` → `Failure(code, message)` |
 | **Relay** (scheduled) | `OutboxRelay.tick()` (skipped while halted; one transaction) → `ProjectionStream.declare()` → `OutboxStore.lockPending(100)` → per row: `IntegrationEventSerializer.withEmittedAt(payload, at)` → `ProjectionStream.send(row, body)` for all → wait for every confirm against one 5 s deadline → `markEmitted(row, at, body)` for confirmed rows. An outage rolls the tick back; a refused row gets `recordFailure()` and the relay halts. An unpublishable row gets `recordFailure()` before anything is sent, and the relay halts |
 | **Errors** | Exceptions propagate to `ApiKeyExceptionHandler`: `ApiKeyNotFoundException` → 404, `ApiKeyUpdateFailure` → 409, `InvalidPermissionsException` → 400, `ApiKeyVerificationFailure` → 400/401. Anything else goes to `WebExceptionHandler`, and all of them go through `ApiProblems.of()` |
 
@@ -345,7 +346,7 @@ Only the four places marked "TX starts here" in the component diagram open a tra
 | Get | `GetApiKeyHandler.handle` (`@Transactional(readOnly = true)`) | REQUIRED, read-only | `requireOwned()`, `ApiKeyView.of()` | No |
 | Update | `RetriedTransaction.execute` (`TransactionTemplate`) | REQUIRES_NEW, one per attempt | `requireOwned()`, `ApiKey.update()`, update the key + insert the outbox row if anything changed, build the view | Up to 2 retries (3 attempts) on `ObjectOptimisticLockingFailureException`, then `ApiKeyUpdateFailure` (409) |
 | Delete | `RetriedTransaction.execute` (`TransactionTemplate`) | REQUIRES_NEW, one per attempt | `requireOwned()`, `ApiKey.delete()`, delete the key + insert the outbox row | Same as Update |
-| Verify | `VerifyApiKeyHandler.handle` (`@Transactional(readOnly = true)`) | REQUIRED, read-only | Parse, `findByAccessId()`, `matches()`, `canAuthenticate()` | No. The facade maps the result after the transaction has closed |
+| Verify | `VerifyApiKeyHandler.handle` (`@Transactional(readOnly = true)`) | REQUIRED, read-only | Parse, `isWellFormed()`, `findByAccessId()`, `matches()`, `canAuthenticate()` | No. The facade maps the result after the transaction has closed |
 | Relay | `OutboxRelay.tick` through `TransactionOperations.execute` | REQUIRED, one per tick | Lock pending rows (`FOR UPDATE SKIP LOCKED`), publish, wait for confirms, then stamp confirmed rows and record failures | Never. An outage rolls back and the next tick polls the same rows; a refusal halts the relay until restart |
 
 ### Issue: one transaction
@@ -660,6 +661,22 @@ classDiagram
 
 Other modules depend only on `ApiKeyVerificationFacade`, which lives in `common/access`. The facade never throws on a rejected credential: it converts `ApiKeyVerificationFailure` into a `Failure` result. The arrows from the handler are numbered in the order the handler runs them. The secret is checked before expiry, so a caller who doesn't hold the right secret can't tell an unknown access ID from a wrong secret.
 
+The facade is internal: only other services and the API gateway call it. But the credential it carries is relayed from a client, so Access treats it as untrusted:
+
+- **`ParsedApiKey.parse`** only reads the key format from the Access ID prefix (`V`, 1 to 3 digits, `_`), with an anchored match that never scans the rest of the input. No prefix means `MALFORMED_CREDENTIALS`.
+- **The key format owns the shape of its keys.** Right after `supports(format)`, the handler asks `CredentialVerifier.isWellFormed(accessId, secret)`, before the lookup and the hash. Anything else is `MALFORMED_CREDENTIALS`.
+  - V1 (`V1KeyShape`, shared by the issuer and the verifier): `V1_` plus 22 characters, and a 43-character secret, all in the `SortableEncoder` alphabet.
+  - The lengths are derived from the encoding and compared first, so input of any size is refused at once.
+- **Logging.** Every failure is one log line with the fixed message `API key verification failed` and key-value fields:
+  - `event=apikey.verify.failed`;
+  - `reason`: the code the caller gets;
+  - `cause`, for operators: `malformed_credential`, `unsupported_key_format`, `unknown_access_id`, `secret_mismatch` or `key_expired`;
+  - `accessId` and `keyFormat`;
+  - for a malformed credential, `accessIdLength` and `accessSecretLength` instead of the key format.
+- **Safe values.** The caller's input is never in the message. Every logged identifier goes through `LoggedIdentifier`, which turns anything outside `A-Z a-z 0-9 _ -` into `?` and cuts it at 64 characters. The secret is never logged.
+- **Console.** It keeps the readable pattern, with the fields appended by `%kvp` (`logging.pattern.console`).
+- **The gateway** owns transport limits (header and body size) and rate limiting; Access has no generic input ceiling and no rate limit.
+
 ```mermaid
 classDiagram
     direction TB
@@ -687,9 +704,13 @@ classDiagram
         <<record>>
         +parse(accessId, accessSecret)$ ParsedApiKey
     }
+    class LoggedIdentifier {
+        +of(value)$ String
+    }
     class CredentialVerifier {
         <<interface>>
         +supports(keyFormat) boolean
+        +isWellFormed(accessId, accessSecret) boolean
         +matches(presentedSecret, storedSecretHash) boolean
     }
     class ApiKeys {
@@ -717,11 +738,12 @@ classDiagram
 
     VerifyApiKeyHandler ..|> VerifyApiKeyUseCase
     VerifyApiKeyHandler --> ParsedApiKey : 1 parse(accessId, secret)
-    VerifyApiKeyHandler --> CredentialVerifier : 2 supports(keyFormat)  4 matches(secret, hash)
-    VerifyApiKeyHandler --> ApiKeys : 3 findByAccessId(accessId)
-    VerifyApiKeyHandler --> ApiKey : getAccessSecretHash()  5 canAuthenticate(now)
+    VerifyApiKeyHandler --> CredentialVerifier : 2 supports(keyFormat)  3 isWellFormed(accessId, secret)  5 matches(secret, hash)
+    VerifyApiKeyHandler --> ApiKeys : 4 findByAccessId(accessId)
+    VerifyApiKeyHandler --> ApiKey : getAccessSecretHash()  6 canAuthenticate(now)
     VerifyApiKeyHandler ..> VerifiedApiKey : creates
     VerifyApiKeyHandler ..> ApiKeyVerificationFailure : throws invalid() / expired()
+    VerifyApiKeyHandler ..> LoggedIdentifier : every logged accessId / keyFormat
     ParsedApiKey ..> ApiKeyVerificationFailure : throws malformed()
 ```
 
@@ -751,12 +773,21 @@ classDiagram
     class CredentialVerifier {
         <<interface>>
         +supports(keyFormat) boolean
+        +isWellFormed(accessId, accessSecret) boolean
         +matches(presentedSecret, storedSecretHash) boolean
     }
     class V1CredentialIssuer
     class V1CredentialVerifier
+    class V1KeyShape {
+        ACCESS_ID_PREFIX = V1_
+        ACCESS_ID_LENGTH = 25
+        SECRET_LENGTH = 43
+        +isWellFormed(accessId, accessSecret)$ boolean
+    }
     class SortableEncoder {
         +encode(long[]) String
+        +encodedLength(longCount)$ int
+        +isEncoded(value)$ boolean
     }
     class Sha256SecretHasher {
         +hash(accessSecret) byte[]
@@ -782,6 +813,9 @@ classDiagram
 
     V1CredentialVerifier ..|> CredentialVerifier
     V1CredentialVerifier --> Sha256SecretHasher : hash(presentedSecret)
+    V1CredentialVerifier --> V1KeyShape : isWellFormed(accessId, secret)
+    V1CredentialIssuer --> V1KeyShape : prefix, longs per part
+    V1KeyShape --> SortableEncoder : encodedLength / isEncoded
 ```
 
 ## 4. Outbox relay

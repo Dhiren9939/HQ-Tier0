@@ -32,6 +32,11 @@ class VerifyApiKeyHandlerTest {
         }
 
         @Override
+        public boolean isWellFormed(String accessId, String accessSecret) {
+            return !accessId.contains("!") && !accessSecret.contains("!");
+        }
+
+        @Override
         public boolean matches(String presentedSecret, String storedSecretHash) {
             return ("hash-of-" + presentedSecret).equals(storedSecretHash);
         }
@@ -116,6 +121,14 @@ class VerifyApiKeyHandlerTest {
         assertFailure(() -> verify("not-a-key", "secret_raw"), VerificationFailureCode.MALFORMED_CREDENTIALS, MALFORMED_MESSAGE);
         assertFailure(() -> verify(null, "secret_raw"), VerificationFailureCode.MALFORMED_CREDENTIALS, MALFORMED_MESSAGE);
         assertFailure(() -> verify("V1_acc", null), VerificationFailureCode.MALFORMED_CREDENTIALS, MALFORMED_MESSAGE);
+    }
+
+    @Test
+    void aCredentialTheKeyFormatCallsMalformedIsRefusedBeforeTheLookup() {
+        apiKeys.existing(active());
+
+        assertFailure(() -> verify("V1_acc!", "secret_raw"), VerificationFailureCode.MALFORMED_CREDENTIALS, MALFORMED_MESSAGE);
+        assertFailure(() -> verify("V1_acc", "secret_raw!"), VerificationFailureCode.MALFORMED_CREDENTIALS, MALFORMED_MESSAGE);
     }
 
     @Test

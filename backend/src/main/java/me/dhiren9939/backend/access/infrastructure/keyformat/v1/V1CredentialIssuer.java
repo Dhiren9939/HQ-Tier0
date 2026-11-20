@@ -14,24 +14,22 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 class V1CredentialIssuer implements CredentialIssuer {
-    static final String KEY_FORMAT = "V1";
-
     private final SortableEncoder sortableEncoder;
     private final SecureRandom secureRandom;
     private final Sha256SecretHasher secretHasher;
 
     @Override
     public String keyFormat() {
-        return KEY_FORMAT;
+        return V1KeyShape.KEY_FORMAT;
     }
 
     @Override
     public IssuedCredential issue() {
         UUID accessUuid = UuidCreator.getTimeOrderedEpoch();
-        String accessId = KEY_FORMAT + "_" + sortableEncoder
+        String accessId = V1KeyShape.ACCESS_ID_PREFIX + sortableEncoder
                 .encode(new long[]{accessUuid.getMostSignificantBits(), accessUuid.getLeastSignificantBits()});
 
-        long[] secretLongs = new long[4];
+        long[] secretLongs = new long[V1KeyShape.SECRET_LONGS];
         for (int i = 0; i < secretLongs.length; i++)
             secretLongs[i] = secureRandom.nextLong();
 

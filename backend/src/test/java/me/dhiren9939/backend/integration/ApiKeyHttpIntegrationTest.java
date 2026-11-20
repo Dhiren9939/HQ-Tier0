@@ -175,10 +175,18 @@ class ApiKeyHttpIntegrationTest extends AccessIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.apiKeyId").value(id.toString()))
                 .andExpect(jsonPath("$.userId").value(owner.toString()));
+        // well-formed V1 credentials that do not match: 401
+        String wrongSecret = "A".repeat(43);
+        String unknownAccessId = "V1_" + "A".repeat(22);
+        send(get("/test-probe/verify").param("accessId", accessId).param("secret", wrongSecret))
+                .andExpect(status().isUnauthorized());
+        send(get("/test-probe/verify").param("accessId", unknownAccessId).param("secret", secret))
+                .andExpect(status().isUnauthorized());
+        // not the V1 shape: refused as malformed before the lookup, 400
         send(get("/test-probe/verify").param("accessId", accessId).param("secret", "wrong"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isBadRequest());
         send(get("/test-probe/verify").param("accessId", "V1_unknown").param("secret", secret))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isBadRequest());
         send(get("/test-probe/verify").param("accessId", "V9_unsupportedFormat").param("secret", secret))
                 .andExpect(status().isUnauthorized());
         send(get("/test-probe/verify").param("accessId", "not-an-access-id").param("secret", secret))

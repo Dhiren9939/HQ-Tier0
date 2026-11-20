@@ -130,8 +130,12 @@ class ApiKeyLifecycleIntegrationTest extends AccessIntegrationTest {
     void verifyFailsWithTheRightCode() {
         IssuedApiKeyResult active = issueActive(owner, "active", Lifetime.ONE_DAY, ingestionWrite());
 
-        assertVerifyFails("V1_doesNotExist", "whatever", VerificationFailureCode.INVALID_CREDENTIALS);
-        assertVerifyFails(active.key().accessId(), "not-the-secret", VerificationFailureCode.INVALID_CREDENTIALS);
+        // well-formed V1 credentials that do not match
+        assertVerifyFails("V1_" + "A".repeat(22), "A".repeat(43), VerificationFailureCode.INVALID_CREDENTIALS);
+        assertVerifyFails(active.key().accessId(), "A".repeat(43), VerificationFailureCode.INVALID_CREDENTIALS);
+        // not the V1 shape
+        assertVerifyFails("V1_doesNotExist", "whatever", VerificationFailureCode.MALFORMED_CREDENTIALS);
+        assertVerifyFails(active.key().accessId(), "not-the-secret", VerificationFailureCode.MALFORMED_CREDENTIALS);
 
         // still fine now, but past its one-day lifetime it must stop authenticating
         assertThat(verifyApiKey.handle(new VerifyApiKeyQuery(active.key().accessId(), active.accessSecret())))

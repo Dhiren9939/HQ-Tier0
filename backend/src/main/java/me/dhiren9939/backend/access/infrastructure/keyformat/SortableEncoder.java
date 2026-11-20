@@ -9,12 +9,23 @@ public class SortableEncoder {
 
     private static final String ALPHABET = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz";
 
+    /** Characters {@link #encode} produces for {@code longCount} longs: 6 bits per character, rounded up. */
+    public static int encodedLength(int longCount) {
+        return (longCount * 64 + 5) / 6;
+    }
+
+    /** True when every character of {@code value} is in the encoding alphabet. */
+    public static boolean isEncoded(String value) {
+        for (int i = 0; i < value.length(); i++)
+            if (ALPHABET.indexOf(value.charAt(i)) < 0)
+                return false;
+        return true;
+    }
+
     public String encode(long[] array) {
         if (array == null || array.length == 0) return "";
 
-        int totalBits = array.length * 64;
-        int numChars = (totalBits + 5) / 6;
-        char[] out = new char[numChars];
+        char[] out = new char[encodedLength(array.length)];
 
         long buffer = 0;
         int bitCount = 0;

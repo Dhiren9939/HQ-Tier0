@@ -15,7 +15,12 @@ class V1CredentialVerifier implements CredentialVerifier {
 
     @Override
     public boolean supports(String keyFormat) {
-        return V1CredentialIssuer.KEY_FORMAT.equalsIgnoreCase(keyFormat);
+        return V1KeyShape.KEY_FORMAT.equalsIgnoreCase(keyFormat);
+    }
+
+    @Override
+    public boolean isWellFormed(String accessId, String accessSecret) {
+        return V1KeyShape.isWellFormed(accessId, accessSecret);
     }
 
     @Override
