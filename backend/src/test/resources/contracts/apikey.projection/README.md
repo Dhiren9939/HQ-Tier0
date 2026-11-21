@@ -2,7 +2,7 @@
 
 The published contract of the `apikey.projections` super stream, as checked-in examples. They are the shape both
 sides test against: Access's serializer must write exactly these bodies (`ApiKeyProjectionGoldenContractTest`), and
-consumers (Ingestion's reader) must read them.
+consumers must read them (`JsonApiKeyIntegrationEventDeserializerTest` reads `create.published.json`).
 
 - `create.json`, `update.json`, `delete.json`: the stored outbox body of each event type (no `emittedAt`).
 - `create.published.json`: what goes on the stream: the stored body plus `emittedAt`.

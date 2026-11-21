@@ -152,6 +152,10 @@ classDiagram
         +toJson(eventId, event) String
         +withEmittedAt(payload, at) String
     }
+    class Deserializer["JsonApiKeyIntegrationEventDeserializer"] {
+        <<infrastructure>>
+        +deserialize(body) ApiKeyIntegrationEvent
+    }
     class OutboxStore {
         <<infrastructure>>
         +append(event) void
@@ -314,11 +318,12 @@ How to read it:
 | ApiKeys | `ApiKeys` | The storage contract the domain defines. |
 | Domain exceptions | `ApiKeyNotFoundException`, `ApiKeyUpdateFailure`, `UpdateFailureCode`, `InvalidApiKeyException`, `ApiKeyViolation`, `InvalidPermissionsException` | The error handlers map these to 404 / 409 / 400. |
 | Verification contract | `ApiKeyVerificationFacade`, `VerifyApiKeyQuery`, `ApiKeyVerifyResult`, `common.access.ApiKeyView`, `VerificationFailureCode` | What other modules call, and what they get back. |
-| Integration events | `ApiKeyIntegrationEvent` (sealed), `ApiKeyCreated/Updated/DeletedIntegrationEvent`, `ApiKeyScope`, `ApiKeyAccessLevel` | The published event contract (`apiKey.projection.*`). `IntegrationEventRules` (run by the records' compact constructors) is the contract's only set of value rules: required fields, sizes, `version` at least 1, timestamps in order, `INGESTION` only `WRITE`. Scopes and levels are published by their fixed `wireName()`, never the Java constant name. |
+| Integration events | `ApiKeyIntegrationEvent` (sealed), `ApiKeyCreated/Updated/DeletedIntegrationEvent`, `ApiKeyScope`, `ApiKeyAccessLevel`, `ApiKeyIntegrationEventDeserializer`, `ApiKeyEventDeserializationException` | The published event contract (`apiKey.projection.*`). `IntegrationEventRules` (run by the records' compact constructors) is the contract's only set of value rules: required fields, sizes, `version` at least 1, timestamps in order, `INGESTION` only `WRITE`. Scopes and levels are published by their fixed `wireName()`, never the Java constant name. `ApiKeyIntegrationEventDeserializer` is only the reading port (published body in, event out); it has no logic. |
 | ApiKeysAdapter | `ApiKeysAdapter`, `JpaApiKeyRepository` | Implements `ApiKeys`. After each save or delete it maps the key's events and hands each one to `OutboxStore.append`. |
 | Outbox | `EventOutboxEntity`, `EventOutboxRepository` | The `access.outbox` table. |
 | OutboxStore | `OutboxStore` | The outbox operations. `append` serializes the event and inserts the row in the caller's transaction. For the relay: lock pending rows, stamp a row as emitted with the body that was sent, record why a row could not be published. |
 | IntegrationEventSerializer | `IntegrationEventSerializer`, `IntegrationEventSerializationException` | Writes the event as the JSON body and checks it against the whole contract, before it is stored (`toJson`) and again before it is published (`withEmittedAt`). |
+| Event deserializer | `JsonApiKeyIntegrationEventDeserializer` | Implements `ApiKeyIntegrationEventDeserializer`: reads a published body (the stored body plus `emittedAt`) back into its event. It reuses the serializer's `validate`, so reading is exactly as strict as writing; it only adds the `emittedAt` check. `eventId` is checked but not returned. |
 | OutboxRelay | `OutboxRelay`, `OutboxRelayHealth`, `OutboxRelayProperties` | Every 2 seconds publishes up to 100 pending rows with publisher confirms. Cancels the batch on a broker outage; halts (health DOWN) on a refused or unpublishable row. Never retries. |
 | ProjectionStream | `ProjectionStream`, `RabbitProjectionStream`, `ProjectionMessages`, `ProjectionRefusedException`, `ProjectionUnavailableException` | The super stream, routed by `apiKeyId`. Builds the message and tells a broker refusal from an outage. |
 | Key formats | `CredentialIssuer`, `V1CredentialIssuer`, `V1CredentialVerifier`, `V1KeyShape`, `Sha256SecretHasher`, `SortableEncoder` | Generates and checks credentials. Each format owns the exact shape of its keys. |
@@ -1108,6 +1113,7 @@ One body per event, checked in one place, pinned by golden files:
   1. **Keys.** Exactly `STORED_KEYS`, derived from the event records' components (all but `emittedAt`) plus `eventId` and `eventType`. The class refuses to load if the three records ever carry different fields.
   2. **JSON form, from each component's type.** Text for `String`, a canonical lower-case UUID for `UUID`, a canonical ISO-8601 UTC instant for `Instant`, a whole number for `long`, and an object of known scope to level, by wire name, for the permissions. A component of a new type fails until the serializer learns its form.
   3. **Values.** The body is read back into its contract record, so `IntegrationEventRules` decides. The serializer repeats no size or value rule.
+- **`JsonApiKeyIntegrationEventDeserializer`** reads a published body back through the same three steps (via the serializer's `validate`), after checking and removing `emittedAt`, which a published body must carry. It throws `ApiKeyEventDeserializationException` naming the field. `JsonApiKeyIntegrationEventDeserializerTest` reads `create.published.json`, round-trips every event type and checks the refusals.
 - **Wire names.** `ApiKeyScope` and `ApiKeyAccessLevel` have a fixed `wireName()` and `fromWire()`. Renaming a Java constant never changes what consumers see.
 - **Golden files.** `backend/src/test/resources/contracts/apikey.projection/` holds `create.json`, `update.json`, `delete.json` (stored bodies) and `create.published.json` (with `emittedAt`). `ApiKeyProjectionGoldenContractTest` checks that:
   - the serializer writes exactly these bodies;

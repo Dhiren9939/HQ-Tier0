@@ -109,8 +109,8 @@ public class IntegrationEventSerializer {
         }
     }
 
-    /** Throws unless the body is exactly a stored integration event; {@code expectedEventId} is checked when given. */
-    private void validate(ObjectNode body, Optional<String> expectedEventId) {
+    /** Throws unless the body is exactly a stored integration event, and returns it; {@code expectedEventId} is checked when given. */
+    ApiKeyIntegrationEvent validate(ObjectNode body, Optional<String> expectedEventId) {
         // 1. Keys
         for (Map.Entry<String, JsonNode> field : body.properties())
             if (!STORED_KEYS.contains(field.getKey()))
@@ -135,13 +135,13 @@ public class IntegrationEventSerializer {
         fields.set(PERMISSIONS, javaPermissions(fields.get(PERMISSIONS)));
 
         // 3. Values: the contract record's own rules
-        readAs(eventClass, fields);
+        return readAs(eventClass, fields);
     }
 
     /** Reads the fields into the contract record; its compact constructor refuses anything the contract forbids. */
-    private void readAs(Class<? extends ApiKeyIntegrationEvent> eventClass, ObjectNode fields) {
+    private ApiKeyIntegrationEvent readAs(Class<? extends ApiKeyIntegrationEvent> eventClass, ObjectNode fields) {
         try {
-            json.treeToValue(fields, eventClass);
+            return json.treeToValue(fields, eventClass);
         } catch (JacksonException e) {
             Throwable cause = e;
             while (cause != null && !(cause instanceof IllegalArgumentException))
@@ -197,7 +197,7 @@ public class IntegrationEventSerializer {
         throw invalid(name, "is not a canonical lower-case UUID: " + text);
     }
 
-    private static void instant(String name, JsonNode value) {
+    static void instant(String name, JsonNode value) {
         String text = text(name, value);
         try {
             if (Instant.parse(text).toString().equals(text))
