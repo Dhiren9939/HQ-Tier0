@@ -8,6 +8,8 @@ import me.dhiren9939.backend.access.domain.events.ApiKeyCreated;
 import me.dhiren9939.backend.access.domain.events.ApiKeyDeleted;
 import me.dhiren9939.backend.access.domain.events.ApiKeyEvent;
 import me.dhiren9939.backend.access.domain.events.ApiKeyUpdated;
+import me.dhiren9939.backend.access.domain.exceptions.ApiKeyViolation;
+import me.dhiren9939.backend.access.domain.exceptions.InvalidApiKeyException;
 
 import java.time.Instant;
 import java.util.*;
@@ -20,12 +22,19 @@ import java.util.*;
  * registers the matching domain event; the persistence layer collects them with {@link #pullDomainEvents()} after
  * saving or removing the key and maps them to the published contract. Nothing waits on the data plane: it is
  * expected to conform to the events, which carry a per-key {@code version} for ordering and idempotency.</p>
+ *
+ * <p>The aggregate checks every rule a caller can break itself, whoever calls it, and refuses with
+ * {@link InvalidApiKeyException} before changing anything. Values only server code supplies (the credential, the
+ * clock's instant) are required too, but a missing one is a bug, not a caller error.</p>
  */
 @Entity
 @Getter
 @NoArgsConstructor(access = lombok.AccessLevel.PROTECTED)
 @Table(name = "api_keys", schema = "access")
 public class ApiKey {
+
+    /** Longest name, in characters (the column length). Request DTOs use the same limit. */
+    public static final int MAX_NAME_LENGTH = 256;
 
     @Id
     private UUID apiKeyId;
@@ -78,9 +87,22 @@ public class ApiKey {
     // Commands
     // ---------------------------------------------------------------------------------------------
 
-    /** Issues a new key at version 1; it is active at once and the creation event is registered. */
+    /**
+     * Issues a new key at version 1; it is active at once and the creation event is registered. Its expiry is the
+     * {@code lifetime} counted from {@code createdAt}.
+     */
     public static ApiKey issue(UUID userId, String apiKeyName, IssuedCredential credential,
-                               Permissions permissions, Instant createdAt, Instant expiresAt) {
+                               Permissions permissions, Lifetime lifetime, Instant createdAt) {
+        if (userId == null)
+            throw new InvalidApiKeyException(ApiKeyViolation.USER_REQUIRED);
+        requireValidName(apiKeyName, ApiKeyViolation.NAME_REQUIRED);
+        if (permissions == null)
+            throw new InvalidApiKeyException(ApiKeyViolation.PERMISSIONS_REQUIRED);
+        if (lifetime == null)
+            throw new InvalidApiKeyException(ApiKeyViolation.EXPIRY_REQUIRED);
+        Objects.requireNonNull(credential, "credential: issued by the server, never by the caller");
+        Objects.requireNonNull(createdAt, "createdAt: taken from the server clock");
+
         ApiKey key = new ApiKey();
         key.apiKeyId = UuidCreator.getTimeOrderedEpoch();
         key.userId = userId;
@@ -89,7 +111,7 @@ public class ApiKey {
         key.accessSecretHash = credential.secretHash();
         key.assignPermissions(permissions);
         key.createdAt = createdAt;
-        key.expiresAt = expiresAt;
+        key.expiresAt = lifetime.expiryFrom(createdAt);
         key.revision = 1;
         key.pendingEvents.add(key.createdEvent(createdAt));
         return key;
@@ -100,6 +122,9 @@ public class ApiKey {
      * differs from the current one.
      */
     public boolean update(ApiKeyChanges changes, Instant now) {
+        if (changes.name() != null)
+            requireValidName(changes.name(), ApiKeyViolation.NAME_BLANK);
+
         String name = apiKeyName;
         Instant expiry = expiresAt;
         Permissions updatedPermissions = getPermissions();
@@ -189,6 +214,21 @@ public class ApiKey {
     private ApiKeyDeleted deletedEvent(Instant now) {
         return new ApiKeyDeleted(apiKeyName, apiKeyId, revision, now,
                 userId, accessId, accessSecretHash, getPermissions(), createdAt, expiresAt);
+    }
+
+    /**
+     * A name is required, not blank, at most {@link #MAX_NAME_LENGTH} characters and free of control characters
+     * (line breaks, tabs, escapes). {@code whenBlank} is the code for a blank one.
+     */
+    private static void requireValidName(String name, ApiKeyViolation whenBlank) {
+        if (name == null)
+            throw new InvalidApiKeyException(ApiKeyViolation.NAME_REQUIRED);
+        if (name.isBlank())
+            throw new InvalidApiKeyException(whenBlank);
+        if (name.length() > MAX_NAME_LENGTH)
+            throw new InvalidApiKeyException(ApiKeyViolation.NAME_TOO_LONG);
+        if (name.chars().anyMatch(Character::isISOControl))
+            throw new InvalidApiKeyException(ApiKeyViolation.NAME_INVALID_CHARACTERS);
     }
 
     private void assignPermissions(Permissions permissions) {

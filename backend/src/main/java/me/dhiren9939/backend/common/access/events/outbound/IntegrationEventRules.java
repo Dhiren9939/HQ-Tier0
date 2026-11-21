@@ -8,8 +8,10 @@ import java.util.UUID;
 
 /**
  * The rules every integration event must meet the moment it is created, so an event that breaks the published
- * contract cannot exist. They are the contract's sizes and formats; the serializer checks the written JSON against
- * the same contract. Plain Java on purpose: this package may not depend on anything else.
+ * contract cannot exist. They are the contract's only value rules: the serializer reads every body it writes or
+ * publishes back into the record, so these checks run there too, and it adds only what JSON needs on top (the exact
+ * key set and the canonical text of ids and instants). Plain Java on purpose: this package may not depend on anything
+ * else.
  */
 final class IntegrationEventRules {
     /** Longest apiKeyName, accessId and accessSecretHash, in characters. */

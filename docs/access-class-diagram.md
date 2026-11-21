@@ -100,7 +100,7 @@ classDiagram
 
     class Aggregate["ApiKey aggregate"] {
         <<domain>>
-        +issue(userId, name, credential, permissions, createdAt, expiresAt)$ ApiKey
+        +issue(userId, name, credential, permissions, lifetime, createdAt)$ ApiKey
         +update(ApiKeyChanges, now) boolean
         +delete(now) void
         +pullDomainEvents() List~ApiKeyEvent~
@@ -134,6 +134,7 @@ classDiagram
         <<domain>>
         ApiKeyNotFoundException
         ApiKeyUpdateFailure
+        InvalidApiKeyException + ApiKeyViolation
         InvalidPermissionsException
     }
 
@@ -219,6 +220,7 @@ classDiagram
     Aggregate --> ValueTypes : Permissions.of() / applyTo() / expiryFrom()
     Aggregate ..> DomainEvents : registers on issue / update / delete
     ValueTypes ..> DomainExceptions : throws InvalidPermissionsException
+    Aggregate ..> DomainExceptions : throws InvalidApiKeyException
     ApiKeys --> Aggregate : isOwnedBy(userId)
     ApiKeys ..> DomainExceptions : throws ApiKeyNotFoundException
 
@@ -310,9 +312,9 @@ How to read it:
 | Value types | `Permissions`, `PermissionChanges`, `ApiKeyChanges`, `Scope`, `AccessLevel`, `Lifetime`, `ApiKeyState`, `IssuedCredential` | Immutable pieces of the aggregate. |
 | Domain events | `ApiKeyEvent` (sealed), `ApiKeyCreated`, `ApiKeyUpdated`, `ApiKeyDeleted` | A full snapshot of the key at each revision. Checked when created (`ApiKeyEventRules`): nothing null, text non-blank and at most 256 characters, `version` at least 1, `occurredAt` not before `createdAt`, `expiresAt` null or after `createdAt`. |
 | ApiKeys | `ApiKeys` | The storage contract the domain defines. |
-| Domain exceptions | `ApiKeyNotFoundException`, `ApiKeyUpdateFailure`, `UpdateFailureCode`, `InvalidPermissionsException` | The error handlers map these to 404 / 409 / 400. |
+| Domain exceptions | `ApiKeyNotFoundException`, `ApiKeyUpdateFailure`, `UpdateFailureCode`, `InvalidApiKeyException`, `ApiKeyViolation`, `InvalidPermissionsException` | The error handlers map these to 404 / 409 / 400. |
 | Verification contract | `ApiKeyVerificationFacade`, `VerifyApiKeyQuery`, `ApiKeyVerifyResult`, `common.access.ApiKeyView`, `VerificationFailureCode` | What other modules call, and what they get back. |
-| Integration events | `ApiKeyIntegrationEvent` (sealed), `ApiKeyCreated/Updated/DeletedIntegrationEvent` | The published event contract (`apiKey.projection.*`). Checked when created (`IntegrationEventRules`) with the same rules, plus `INGESTION` only allows `WRITE`; `IntegrationEventSerializer` then validates the whole JSON (exact keys, canonical UUIDs and instants, only `expiresAt` nullable) before it is stored and again before it is published. |
+| Integration events | `ApiKeyIntegrationEvent` (sealed), `ApiKeyCreated/Updated/DeletedIntegrationEvent`, `ApiKeyScope`, `ApiKeyAccessLevel` | The published event contract (`apiKey.projection.*`). `IntegrationEventRules` (run by the records' compact constructors) is the contract's only set of value rules: required fields, sizes, `version` at least 1, timestamps in order, `INGESTION` only `WRITE`. Scopes and levels are published by their fixed `wireName()`, never the Java constant name. |
 | ApiKeysAdapter | `ApiKeysAdapter`, `JpaApiKeyRepository` | Implements `ApiKeys`. After each save or delete it maps the key's events and hands each one to `OutboxStore.append`. |
 | Outbox | `EventOutboxEntity`, `EventOutboxRepository` | The `access.outbox` table. |
 | OutboxStore | `OutboxStore` | The outbox operations. `append` serializes the event and inserts the row in the caller's transaction. For the relay: lock pending rows, stamp a row as emitted with the body that was sent, record why a row could not be published. |
@@ -328,13 +330,13 @@ The diagram shows who calls whom. This table shows the order of those calls for 
 
 | Operation | Call sequence |
 |---|---|
-| **Issue** (`POST`) | Controller → `IssueApiKeyUseCase.handle()` (one `@Transactional`) → `IssueCredentialPort.issue()` (Key formats: V1 issuer, SHA-256 hash) → `Lifetime.expiryFrom(now)` → `ApiKey.issue()` (registers `ApiKeyCreated`) → `ApiKeys.save()` → ApiKeysAdapter: JPA save, `pullDomainEvents()`, `toIntegrationEvent()`, `OutboxStore.append()` (`IntegrationEventSerializer.toJson()`, `EventOutboxEntity.of()`, `save()`) → `ApiKeyView.of()` → `IssuedApiKeyResult` (the only time the secret is returned) |
+| **Issue** (`POST`) | Controller → `IssueApiKeyUseCase.handle()` (one `@Transactional`) → `IssueCredentialPort.issue()` (Key formats: V1 issuer, SHA-256 hash) → `ApiKey.issue()` (checks its rules, `Lifetime.expiryFrom(now)`, registers `ApiKeyCreated`) → `ApiKeys.save()` → ApiKeysAdapter: JPA save, `pullDomainEvents()`, `toIntegrationEvent()`, `OutboxStore.append()` (`IntegrationEventSerializer.toJson()`, `EventOutboxEntity.of()`, `save()`) → `ApiKeyView.of()` → `IssuedApiKeyResult` (the only time the secret is returned) |
 | **Get** (`GET`) | Controller → `GetApiKeyUseCase.handle()` (read-only transaction) → `ApiKeys.requireOwned()` → `ApiKey.isOwnedBy()` → `ApiKeyView.of()` → `ApiKey.state(now)` |
 | **Update** (`PATCH`) | Controller → `UpdateApiKeyUseCase.handle()` → `RetriedTransaction.execute()` (new transaction per attempt, up to 2 retries) → `ApiKeys.requireOwned()` → `ApiKey.update(changes, now)` → `PermissionChanges.applyTo()` / `Lifetime.expiryFrom()`. If something changed: registers `ApiKeyUpdated` → `ApiKeys.save()` → same outbox write as Issue. Then `ApiKeyView.of()` |
 | **Delete** (`DELETE`) | Controller → `DeleteApiKeyUseCase.handle()` → `RetriedTransaction.execute()` → `ApiKeys.requireOwned()` → `ApiKey.delete(now)` (registers `ApiKeyDeleted`) → `ApiKeys.delete()` → ApiKeysAdapter: JPA delete, then the same outbox write |
 | **Verify** (other module) | `ApiKeyVerificationFacade.verifyApiKey()` → ApiKeyFacadeImpl → `VerifyApiKeyUseCase.handle()` → `ParsedApiKey.parse()` → `CredentialVerifier.supports(format)` → `CredentialVerifier.isWellFormed(accessId, secret)` → `ApiKeys.findByAccessId()` → `CredentialVerifier.matches(secret, hash)` → `ApiKey.canAuthenticate(now)` → `VerifiedApiKey` → facade: permissions as a scope-to-level map → `Success`. Any `ApiKeyVerificationFailure` → `Failure(code, message)` |
 | **Relay** (scheduled) | `OutboxRelay.tick()` (skipped while halted; one transaction) → `ProjectionStream.declare()` → `OutboxStore.lockPending(100)` → per row: `IntegrationEventSerializer.withEmittedAt(payload, at)` → `ProjectionStream.send(row, body)` for all → wait for every confirm against one 5 s deadline → `markEmitted(row, at, body)` for confirmed rows. An outage rolls the tick back; a refused row gets `recordFailure()` and the relay halts. An unpublishable row gets `recordFailure()` before anything is sent, and the relay halts |
-| **Errors** | Exceptions propagate to `ApiKeyExceptionHandler`: `ApiKeyNotFoundException` → 404, `ApiKeyUpdateFailure` → 409, `InvalidPermissionsException` → 400, `ApiKeyVerificationFailure` → 400/401. Anything else goes to `WebExceptionHandler`, and all of them go through `ApiProblems.of()` |
+| **Errors** | Exceptions propagate to `ApiKeyExceptionHandler`: `ApiKeyNotFoundException` → 404, `ApiKeyUpdateFailure` → 409, `InvalidApiKeyException` (and its subclass `InvalidPermissionsException`) → 400 with the violation as `code` and its `field`, `ApiKeyVerificationFailure` → 400/401. Anything else goes to `WebExceptionHandler`, and all of them go through `ApiProblems.of()` |
 
 ## Transaction scopes
 
@@ -939,7 +941,8 @@ classDiagram
         -expiresAt Instant
         -revision long
         -lockVersion long
-        +issue(userId, name, IssuedCredential, Permissions, createdAt, expiresAt)$ ApiKey
+        +MAX_NAME_LENGTH = 256$
+        +issue(userId, name, IssuedCredential, Permissions, Lifetime, createdAt)$ ApiKey
         +update(ApiKeyChanges, now) boolean
         +delete(now) void
         +pullDomainEvents() List~ApiKeyEvent~
@@ -1008,6 +1011,10 @@ classDiagram
     class ApiKeyCreated
     class ApiKeyUpdated
     class ApiKeyDeleted
+    class InvalidApiKeyException {
+        <<exception>>
+        +violation() ApiKeyViolation
+    }
     class InvalidPermissionsException {
         <<exception>>
     }
@@ -1015,6 +1022,8 @@ classDiagram
         <<exception>>
     }
 
+    InvalidPermissionsException --|> InvalidApiKeyException
+    ApiKey ..> InvalidApiKeyException : throws on a broken rule
     ApiKey --> IssuedCredential : accessId() / secretHash()
     ApiKey --> ApiKeyChanges : name() / lifetime() / permissions()
     ApiKey --> Lifetime : expiryFrom(now)
@@ -1028,6 +1037,7 @@ classDiagram
     Permissions --> Scope : requireAllowed(level)
     Scope --> AccessLevel : allowedLevels
     Scope ..> InvalidPermissionsException : throws
+    Permissions ..> InvalidPermissionsException : throws scopeRequired()
 
     ApiKeyCreated ..|> ApiKeyEvent
     ApiKeyUpdated ..|> ApiKeyEvent
@@ -1038,6 +1048,8 @@ classDiagram
 ```
 
 ## 6. Errors
+
+The aggregate checks every rule a caller can break itself, whoever calls it (HTTP, a facade, another service), and refuses with `InvalidApiKeyException` before changing anything. Its `ApiKeyViolation` (`USER_REQUIRED`, `NAME_REQUIRED`, `NAME_BLANK`, `NAME_TOO_LONG`, `NAME_INVALID_CHARACTERS`, `EXPIRY_REQUIRED`, `PERMISSIONS_REQUIRED`, `PERMISSION_SCOPE_REQUIRED`, `INVALID_SCOPE_LEVEL`) uses the same code as the request DTO for the same rule, and the DTOs share `ApiKey.MAX_NAME_LENGTH`. Values only server code supplies (the credential, the clock's instant) and the event contract (`ApiKeyEventRules`, `IntegrationEventRules`) fail with `NullPointerException` / `IllegalArgumentException`: those are bugs, so they stay logged 500s and are never mapped to 400.
 
 Domain and application exceptions are allowed to propagate all the way up. `ApiKeyExceptionHandler` maps them to RFC 9457 problem responses that include a machine-readable `code`. `WebExceptionHandler` catches framework errors (validation, unreadable body, type mismatch) and anything else that is left.
 
@@ -1050,7 +1062,7 @@ classDiagram
         ~notFound(ApiKeyNotFoundException) 404
         ~conflict(ApiKeyUpdateFailure) 409
         ~verificationFailed(ApiKeyVerificationFailure) 400 or 401
-        ~invalidPermissions(InvalidPermissionsException) 400
+        ~invalidApiKey(InvalidApiKeyException) 400 code + field
     }
     class WebExceptionHandler {
         <<controller advice>>
@@ -1070,8 +1082,9 @@ classDiagram
     class ApiKeyNotFoundException {
         <<exception>>
     }
-    class InvalidPermissionsException {
+    class InvalidApiKeyException {
         <<exception>>
+        +violation() ApiKeyViolation
     }
     class ApiKeyVerificationFailure {
         <<exception>>
@@ -1082,10 +1095,29 @@ classDiagram
     ApiKeyExceptionHandler --> ApiKeyUpdateFailure : code()
     ApiKeyExceptionHandler --> ApiKeyVerificationFailure : code()
     ApiKeyExceptionHandler ..> ApiKeyNotFoundException : handles
-    ApiKeyExceptionHandler ..> InvalidPermissionsException : handles
+    ApiKeyExceptionHandler --> InvalidApiKeyException : violation() code and field
     ApiKeyExceptionHandler --> ApiProblems : of(status, code, detail)
     WebExceptionHandler --> ApiProblems : of(status, code, detail)
 ```
+
+## The published contract
+
+One body per event, checked in one place, pinned by golden files:
+
+- **`IntegrationEventSerializer`** checks every body it writes to the outbox and again before it is published, in three steps:
+  1. **Keys.** Exactly `STORED_KEYS`, derived from the event records' components (all but `emittedAt`) plus `eventId` and `eventType`. The class refuses to load if the three records ever carry different fields.
+  2. **JSON form, from each component's type.** Text for `String`, a canonical lower-case UUID for `UUID`, a canonical ISO-8601 UTC instant for `Instant`, a whole number for `long`, and an object of known scope to level, by wire name, for the permissions. A component of a new type fails until the serializer learns its form.
+  3. **Values.** The body is read back into its contract record, so `IntegrationEventRules` decides. The serializer repeats no size or value rule.
+- **Wire names.** `ApiKeyScope` and `ApiKeyAccessLevel` have a fixed `wireName()` and `fromWire()`. Renaming a Java constant never changes what consumers see.
+- **Golden files.** `backend/src/test/resources/contracts/apikey.projection/` holds `create.json`, `update.json`, `delete.json` (stored bodies) and `create.published.json` (with `emittedAt`). `ApiKeyProjectionGoldenContractTest` checks that:
+  - the serializer writes exactly these bodies;
+  - publishing adds only `emittedAt`;
+  - every golden has exactly `STORED_KEYS`;
+  - dropping or adding any key is refused;
+  - every scope and level appears by its wire name.
+
+  Consumers (Ingestion's reader) test against the same files, so a field added on one side only fails a test, not production. Changing a golden file is a contract change.
+- **`ApiKeyEventRules`** stays in the domain on purpose, as a safety net. The domain may not use `common`, and the aggregate already checks its inputs.
 
 ## What is not reusable across contexts
 

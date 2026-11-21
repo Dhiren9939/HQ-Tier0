@@ -29,11 +29,11 @@ class ApiKeyTest {
     private static final IssuedCredential CREDENTIAL = new IssuedCredential("V1_acc", "secret_raw", "hashed_secret");
 
     private static ApiKey issued() {
-        return ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, NOW, ONE_MONTH_FROM_NOW);
+        return ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, Lifetime.ONE_MONTH, NOW);
     }
 
     private static ApiKey issuedWithoutExpiry() {
-        return ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, NOW, null);
+        return ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, Lifetime.NEVER, NOW);
     }
 
     private static ApiKey activeWithoutEvents() {

@@ -4,6 +4,7 @@ import me.dhiren9939.backend.access.application.transaction.OptimisticLockRetry;
 import me.dhiren9939.backend.access.application.transaction.RetriedTransaction;
 
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 
@@ -35,7 +36,7 @@ public final class Fixtures {
 
     /** An issued key whose creation event is already collected. */
     public static ApiKey active() {
-        ApiKey key = ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, NOW, ONE_MONTH_FROM_NOW);
+        ApiKey key = ApiKey.issue(USER_ID, NAME, CREDENTIAL, NO_PERMISSIONS, Lifetime.ONE_MONTH, NOW);
         key.pullDomainEvents();
         return key;
     }

@@ -1,0 +1,19 @@
+{
+  "eventId": "00000000-0000-7000-8000-0000000000c1",
+  "eventType": "apiKey.projection.create",
+  "apiKeyName": "orders",
+  "apiKeyId": "01968a3e-0000-7000-8000-000000000002",
+  "version": 1,
+  "occurredAt": "2026-01-15T11:00:00Z",
+  "userId": "00000000-0000-0000-0000-000000000001",
+  "accessId": "V1_0PxK-z_9AbCdEfGhIjKlMn",
+  "accessSecretHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "permissions": {
+    "INGESTION": "WRITE",
+    "TENANT": "READ_WRITE",
+    "CHANNEL": "READ"
+  },
+  "createdAt": "2026-01-15T11:00:00Z",
+  "expiresAt": "2026-02-15T11:00:00Z",
+  "emittedAt": "2026-01-15T11:00:02.500Z"
+}

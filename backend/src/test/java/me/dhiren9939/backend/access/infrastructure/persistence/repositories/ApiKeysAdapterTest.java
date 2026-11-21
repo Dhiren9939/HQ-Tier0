@@ -3,6 +3,7 @@ package me.dhiren9939.backend.access.infrastructure.persistence.repositories;
 import me.dhiren9939.backend.access.application.events.ApiKeyIntegrationEventMapper;
 import me.dhiren9939.backend.access.application.events.DefaultApiKeyIntegrationEventMapper;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
+import me.dhiren9939.backend.access.domain.aggregates.apikey.Lifetime;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.IssuedCredential;
 import me.dhiren9939.backend.access.domain.aggregates.apikey.Permissions;
 import me.dhiren9939.backend.common.access.events.outbound.ApiKeyCreatedIntegrationEvent;
@@ -40,7 +41,7 @@ class ApiKeysAdapterTest {
 
     private static ApiKey newKey() {
         return ApiKey.issue(UUID.randomUUID(), "k", new IssuedCredential("V1_acc", "secret", "hash"),
-                Permissions.none(), NOW, null);
+                Permissions.none(), Lifetime.NEVER, NOW);
     }
 
     @Test

@@ -4,7 +4,7 @@ import me.dhiren9939.backend.access.application.usecase.service.verify.ApiKeyVer
 import me.dhiren9939.backend.common.access.VerificationFailureCode;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyNotFoundException;
 import me.dhiren9939.backend.access.domain.exceptions.ApiKeyUpdateFailure;
-import me.dhiren9939.backend.access.domain.exceptions.InvalidPermissionsException;
+import me.dhiren9939.backend.access.domain.exceptions.InvalidApiKeyException;
 import me.dhiren9939.backend.access.presentation.api.errors.ApiProblems;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -36,8 +36,12 @@ class ApiKeyExceptionHandler {
         return ApiProblems.of(status, exception.code().name(), exception.getMessage());
     }
 
-    @ExceptionHandler(InvalidPermissionsException.class)
-    ProblemDetail invalidPermissions(InvalidPermissionsException exception) {
-        return ApiProblems.of(HttpStatus.BAD_REQUEST, "INVALID_SCOPE_LEVEL", exception.getMessage());
+    /** A rule of the aggregate the request broke, such as {@code NAME_TOO_LONG}; {@code field} says where. */
+    @ExceptionHandler(InvalidApiKeyException.class)
+    ProblemDetail invalidApiKey(InvalidApiKeyException exception) {
+        ProblemDetail problem = ApiProblems.of(HttpStatus.BAD_REQUEST, exception.violation().name(),
+                exception.getMessage());
+        problem.setProperty("field", exception.violation().field());
+        return problem;
     }
 }

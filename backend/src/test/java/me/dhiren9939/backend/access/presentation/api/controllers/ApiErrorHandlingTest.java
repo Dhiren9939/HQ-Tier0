@@ -213,7 +213,18 @@ class ApiErrorHandlingTest {
 
         failure = new InvalidPermissionsException("nope");
         mvc.perform(get(KEYS + "/" + KEY_ID))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_SCOPE_LEVEL"));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_SCOPE_LEVEL"))
+                .andExpect(jsonPath("$.field").value("permissions"));
+
+        for (me.dhiren9939.backend.access.domain.exceptions.ApiKeyViolation violation
+                : me.dhiren9939.backend.access.domain.exceptions.ApiKeyViolation.values()) {
+            failure = new me.dhiren9939.backend.access.domain.exceptions.InvalidApiKeyException(violation);
+            mvc.perform(get(KEYS + "/" + KEY_ID))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(violation.name()))
+                    .andExpect(jsonPath("$.field").value(violation.field()))
+                    .andExpect(jsonPath("$.detail").value(violation.message()));
+        }
 
         for (VerificationFailureCode code : VerificationFailureCode.values()) {
             failure = new ApiKeyVerificationFailure(code, "refused");

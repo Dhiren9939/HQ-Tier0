@@ -13,13 +13,15 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.lang.reflect.RecordComponent;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
-import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Writes integration events as the JSON message body, and is the only place that knows that shape.
@@ -28,33 +30,42 @@ import java.util.stream.Collectors;
  * which only exists once the event is published ({@link #withEmittedAt}).</p>
  *
  * <p>This class is the only gate in front of the outbox: a relay (or CDC later) forwards rows as they are and has no
- * way to skip a bad one, so nothing that breaks the contract may be stored. {@link #toJson} therefore checks the
- * finished JSON, not the event object, against the whole wire contract and refuses anything else. A refusal throws
- * {@link IntegrationEventSerializationException} naming the field, which rolls the key change back.</p>
- *
- * <p>The contract: exactly the keys {@link #STORED_KEYS}, no others; nothing is null except {@code expiresAt} (null
- * means the key never expires); ids are canonical UUIDs; instants are canonical ISO-8601 UTC; {@code version} is at
- * least 1; text is not blank and at most {@value #MAX_TEXT} characters; {@code permissions} is an object of known
- * scope to known level, where a scope that is absent means no access and {@code INGESTION} only allows
- * {@code WRITE}. Key order is not part of the contract.</p>
+ * way to skip a bad one, so nothing that breaks the contract may be stored. Every body, written or about to be
+ * published, is checked in three steps, and a refusal throws {@link IntegrationEventSerializationException} naming
+ * the field:</p>
+ * <ol>
+ *   <li><b>Keys</b>: exactly {@link #STORED_KEYS}, which is derived from the event records' components (all but
+ *       {@code emittedAt}) plus {@code eventId} and {@code eventType}. Adding a field to the records adds it here.</li>
+ *   <li><b>JSON form</b>, from each component's type: text for {@code String}, a canonical lower-case UUID for
+ *       {@code UUID}, a canonical ISO-8601 UTC instant ({@code Instant.toString}) for {@code Instant}, a whole number
+ *       for {@code long}, and an object of scope to level, by their wire names, for the permissions.</li>
+ *   <li><b>Values</b>: the body is read back into its contract record, so the record's own rules
+ *       ({@code IntegrationEventRules}: required fields, sizes, {@code version} at least 1, timestamps in order,
+ *       {@code INGESTION} only {@code WRITE}) are the one place those rules live.</li>
+ * </ol>
+ * <p>Scopes and levels are written by {@link ApiKeyScope#wireName()} and {@link ApiKeyAccessLevel#wireName()},
+ * never by the Java constant name. Key order is not part of the contract. The golden files in
+ * {@code src/test/resources/contracts/apikey.projection} pin the shape.</p>
  */
 @Component
 @RequiredArgsConstructor
 public class IntegrationEventSerializer {
     static final String EVENT_ID = "eventId";
     static final String EVENT_TYPE = "eventType";
-    static final String EXPIRES_AT = "expiresAt";
     static final String EMITTED_AT = "emittedAt";
-    static final int MAX_TEXT = 256;
+    static final String PERMISSIONS = "permissions";
+
+    /** The contract record behind each event type. */
+    private static final Map<String, Class<? extends ApiKeyIntegrationEvent>> EVENT_CLASSES = Map.of(
+            ApiKeyCreatedIntegrationEvent.EVENT_TYPE, ApiKeyCreatedIntegrationEvent.class,
+            ApiKeyUpdatedIntegrationEvent.EVENT_TYPE, ApiKeyUpdatedIntegrationEvent.class,
+            ApiKeyDeletedIntegrationEvent.EVENT_TYPE, ApiKeyDeletedIntegrationEvent.class);
+
+    /** The event fields a stored body carries, by name and Java type: every record component but emittedAt. */
+    private static final Map<String, Class<?>> FIELDS = storedFields();
 
     /** Every key a stored body carries, nullable or not. */
-    static final Set<String> STORED_KEYS = Set.of(EVENT_ID, EVENT_TYPE, "apiKeyName", "apiKeyId", "version",
-            "occurredAt", "userId", "accessId", "accessSecretHash", "permissions", "createdAt", EXPIRES_AT);
-
-    private static final Set<String> EVENT_TYPES = Set.of(ApiKeyCreatedIntegrationEvent.EVENT_TYPE,
-            ApiKeyUpdatedIntegrationEvent.EVENT_TYPE, ApiKeyDeletedIntegrationEvent.EVENT_TYPE);
-    private static final Set<String> SCOPES = names(ApiKeyScope.values());
-    private static final Set<String> LEVELS = names(ApiKeyAccessLevel.values());
+    static final Set<String> STORED_KEYS = storedKeys();
 
     private final JsonMapper json;
 
@@ -74,8 +85,9 @@ public class IntegrationEventSerializer {
             body.put(EVENT_TYPE, event.eventType());
             ObjectNode fields = json.valueToTree(event);
             fields.remove(EMITTED_AT);
+            fields.set(PERMISSIONS, wirePermissions(event.permissions()));
             body.setAll(fields);
-            validate(body, eventId.toString());
+            validate(body, Optional.of(eventId.toString()));
             return json.writeValueAsString(body);
         } catch (JacksonException e) {
             throw new IntegrationEventSerializationException("Cannot write " + event.eventType() + " as JSON", e);
@@ -89,7 +101,7 @@ public class IntegrationEventSerializer {
         try {
             if (!(json.readTree(payload) instanceof ObjectNode body))
                 throw new IntegrationEventSerializationException("The outbox payload is not a JSON object");
-            validate(body, null);
+            validate(body, Optional.empty());
             body.put(EMITTED_AT, emittedAt.toString());
             return json.writeValueAsString(body);
         } catch (JacksonException e) {
@@ -97,8 +109,9 @@ public class IntegrationEventSerializer {
         }
     }
 
-    /** Throws unless the body is exactly a stored integration event; {@code expectedEventId} is checked when known. */
-    private static void validate(ObjectNode body, String expectedEventId) {
+    /** Throws unless the body is exactly a stored integration event; {@code expectedEventId} is checked when given. */
+    private void validate(ObjectNode body, Optional<String> expectedEventId) {
+        // 1. Keys
         for (Map.Entry<String, JsonNode> field : body.properties())
             if (!STORED_KEYS.contains(field.getKey()))
                 throw invalid(field.getKey(), "is not part of the event contract");
@@ -106,92 +119,163 @@ public class IntegrationEventSerializer {
             if (!body.has(key))
                 throw invalid(key, "is missing");
 
-        String eventId = uuid(body, EVENT_ID);
-        if (expectedEventId != null && !expectedEventId.equals(eventId))
-            throw invalid(EVENT_ID, "is " + eventId + " but the event was given " + expectedEventId);
-        String eventType = text(body, EVENT_TYPE);
-        if (!EVENT_TYPES.contains(eventType))
-            throw invalid(EVENT_TYPE, "is " + eventType + ", expected one of " + EVENT_TYPES);
+        String eventId = uuid(EVENT_ID, body.get(EVENT_ID));
+        expectedEventId.filter(expected -> !expected.equals(eventId)).ifPresent(expected -> {
+            throw invalid(EVENT_ID, "is " + eventId + " but the event was given " + expected);
+        });
+        String eventType = text(EVENT_TYPE, body.get(EVENT_TYPE));
+        Class<? extends ApiKeyIntegrationEvent> eventClass = Optional.ofNullable(EVENT_CLASSES.get(eventType))
+                .orElseThrow(() -> invalid(EVENT_TYPE, "is " + eventType + ", expected one of " + EVENT_CLASSES.keySet()));
 
-        text(body, "apiKeyName");
-        uuid(body, "apiKeyId");
-        uuid(body, "userId");
-        text(body, "accessId");
-        text(body, "accessSecretHash");
-        version(body);
-        instant(body, "occurredAt");
-        instant(body, "createdAt");
-        if (!body.get(EXPIRES_AT).isNull())
-            instant(body, EXPIRES_AT);
-        permissions(body.get("permissions"));
+        // 2. JSON form, field by field
+        ObjectNode fields = body.deepCopy();
+        fields.remove(EVENT_ID);
+        fields.remove(EVENT_TYPE);
+        FIELDS.forEach((name, type) -> checkForm(name, type, fields.get(name)));
+        fields.set(PERMISSIONS, javaPermissions(fields.get(PERMISSIONS)));
+
+        // 3. Values: the contract record's own rules
+        readAs(eventClass, fields);
     }
 
-    private static String text(ObjectNode body, String key) {
-        JsonNode value = body.get(key);
+    /** Reads the fields into the contract record; its compact constructor refuses anything the contract forbids. */
+    private void readAs(Class<? extends ApiKeyIntegrationEvent> eventClass, ObjectNode fields) {
+        try {
+            json.treeToValue(fields, eventClass);
+        } catch (JacksonException e) {
+            Throwable cause = e;
+            while (cause != null && !(cause instanceof IllegalArgumentException))
+                cause = cause.getCause();
+            if (cause != null)
+                throw new IntegrationEventSerializationException(cause.getMessage(), e);
+            throw new IntegrationEventSerializationException("The event cannot be read as its contract record", e);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // JSON form
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /** Null is left to the record, which knows which fields may be null; anything else must have its type's form. */
+    private static void checkForm(String name, Class<?> type, JsonNode value) {
+        if (value.isNull()) {
+            if (type.isPrimitive())
+                throw invalid(name, "is null");
+            return;
+        }
+        if (type == String.class)
+            text(name, value);
+        else if (type == UUID.class)
+            uuid(name, value);
+        else if (type == Instant.class)
+            instant(name, value);
+        else if (type == long.class || type == Long.class)
+            wholeNumber(name, value);
+        else if (type == Map.class)
+            wirePermissionsForm(name, value);
+        else
+            throw new IllegalStateException("The serializer has no JSON form for " + name + " of type " + type.getName()
+                    + "; add one before publishing that field");
+    }
+
+    private static String text(String name, JsonNode value) {
         if (value.isNull())
-            throw invalid(key, "is null; only " + EXPIRES_AT + " may be null");
+            throw invalid(name, "is null");
         if (!value.isString())
-            throw invalid(key, "is not text");
-        String text = value.asString();
-        if (text.isBlank())
-            throw invalid(key, "is blank");
-        if (text.length() > MAX_TEXT)
-            throw invalid(key, "is longer than " + MAX_TEXT + " characters");
-        return text;
+            throw invalid(name, "is not text");
+        return value.asString();
     }
 
-    private static String uuid(ObjectNode body, String key) {
-        String text = text(body, key);
+    private static String uuid(String name, JsonNode value) {
+        String text = text(name, value);
         try {
             if (UUID.fromString(text).toString().equals(text))
                 return text;
         } catch (IllegalArgumentException ignored) {
             // reported below
         }
-        throw invalid(key, "is not a canonical lower-case UUID: " + text);
+        throw invalid(name, "is not a canonical lower-case UUID: " + text);
     }
 
-    private static void instant(ObjectNode body, String key) {
-        String text = text(body, key);
+    private static void instant(String name, JsonNode value) {
+        String text = text(name, value);
         try {
             if (Instant.parse(text).toString().equals(text))
                 return;
         } catch (DateTimeParseException ignored) {
             // reported below
         }
-        throw invalid(key, "is not an ISO-8601 UTC instant (as Instant.toString writes it): " + text);
+        throw invalid(name, "is not an ISO-8601 UTC instant (as Instant.toString writes it): " + text);
     }
 
-    private static void version(ObjectNode body) {
-        JsonNode value = body.get("version");
-        if (value.isNull())
-            throw invalid("version", "is null; only " + EXPIRES_AT + " may be null");
+    private static void wholeNumber(String name, JsonNode value) {
         if (!value.isIntegralNumber() || !value.canConvertToLong())
-            throw invalid("version", "is not a whole number");
-        if (value.asLong() < 1)
-            throw invalid("version", "is " + value.asLong() + ", expected at least 1");
+            throw invalid(name, "is not a whole number");
     }
 
-    private static void permissions(JsonNode permissions) {
-        if (permissions.isNull())
-            throw invalid("permissions", "is null; no access is {}");
+    /** An object of known scope to known level, by wire name; no access is a missing scope. */
+    private static void wirePermissionsForm(String name, JsonNode permissions) {
         if (!permissions.isObject())
-            throw invalid("permissions", "is not an object of scope to level");
+            throw invalid(name, "is not an object of scope to level");
         for (Map.Entry<String, JsonNode> grant : permissions.properties()) {
-            String scope = grant.getKey();
+            if (ApiKeyScope.fromWire(grant.getKey()).isEmpty())
+                throw invalid(name, "has unknown scope " + grant.getKey());
             JsonNode level = grant.getValue();
-            if (!SCOPES.contains(scope))
-                throw invalid("permissions", "has unknown scope " + scope + ", expected one of " + SCOPES);
-            if (!level.isString() || !LEVELS.contains(level.asString()))
-                throw invalid("permissions", "has " + scope + " set to " + level + ", expected one of " + LEVELS
-                        + "; no access is a missing scope");
-            if (scope.equals(ApiKeyScope.INGESTION.name()) && !level.asString().equals(ApiKeyAccessLevel.WRITE.name()))
-                throw invalid("permissions", "has INGESTION set to " + level.asString() + "; INGESTION only allows WRITE");
+            if (!level.isString() || ApiKeyAccessLevel.fromWire(level.asString()).isEmpty())
+                throw invalid(name, "has " + grant.getKey() + " set to " + level
+                        + ", which is not a level; no access is a missing scope");
         }
     }
 
-    private static Set<String> names(Enum<?>[] values) {
-        return Arrays.stream(values).map(Enum::name).collect(Collectors.toUnmodifiableSet());
+    // ---------------------------------------------------------------------------------------------------------------
+    // Wire names
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private ObjectNode wirePermissions(Map<ApiKeyScope, ApiKeyAccessLevel> permissions) {
+        ObjectNode wire = json.createObjectNode();
+        permissions.forEach((scope, level) -> wire.put(scope.wireName(), level.wireName()));
+        return wire;
+    }
+
+    /** Wire names to the record's Java names, for reading back; the form was already checked. Null stays null. */
+    private JsonNode javaPermissions(JsonNode wire) {
+        if (wire.isNull())
+            return wire;
+        ObjectNode java = json.createObjectNode();
+        for (Map.Entry<String, JsonNode> grant : wire.properties())
+            java.put(ApiKeyScope.fromWire(grant.getKey()).orElseThrow().name(),
+                    ApiKeyAccessLevel.fromWire(grant.getValue().asString()).orElseThrow().name());
+        return java;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The key set, derived from the records
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /** The created event's fields; the other events must carry exactly the same, or the class fails to load. */
+    private static Map<String, Class<?>> storedFields() {
+        Map<String, Class<?>> fields = fieldsOf(ApiKeyCreatedIntegrationEvent.class);
+        for (Class<? extends ApiKeyIntegrationEvent> eventClass : EVENT_CLASSES.values())
+            if (!fieldsOf(eventClass).equals(fields))
+                throw new IllegalStateException("Every apiKey.projection event must carry the same fields; "
+                        + eventClass.getSimpleName() + " has " + fieldsOf(eventClass) + ", expected " + fields);
+        return Map.copyOf(fields);
+    }
+
+    private static Map<String, Class<?>> fieldsOf(Class<? extends ApiKeyIntegrationEvent> eventClass) {
+        Map<String, Class<?>> fields = new LinkedHashMap<>();
+        for (RecordComponent component : eventClass.getRecordComponents())
+            if (!component.getName().equals(EMITTED_AT))
+                fields.put(component.getName(), component.getType());
+        return fields;
+    }
+
+    private static Set<String> storedKeys() {
+        Set<String> keys = new LinkedHashSet<>();
+        keys.add(EVENT_ID);
+        keys.add(EVENT_TYPE);
+        keys.addAll(FIELDS.keySet());
+        return Set.copyOf(keys);
     }
 
     private static IntegrationEventSerializationException invalid(String field, String problem) {

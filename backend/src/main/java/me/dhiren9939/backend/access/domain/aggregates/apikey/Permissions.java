@@ -1,9 +1,9 @@
 package me.dhiren9939.backend.access.domain.aggregates.apikey;
 
+import me.dhiren9939.backend.access.domain.exceptions.InvalidPermissionsException;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * What an API key may do: one {@link AccessLevel} per {@link Scope}. A scope that is not present means
@@ -35,7 +35,8 @@ public final class Permissions {
             return NONE;
         EnumMap<Scope, AccessLevel> levels = new EnumMap<>(Scope.class);
         requested.forEach((scope, level) -> {
-            Objects.requireNonNull(scope, "scope");
+            if (scope == null)
+                throw InvalidPermissionsException.scopeRequired();
             AccessLevel effective = level == null ? AccessLevel.NONE : level;
             scope.requireAllowed(effective);
             if (effective != AccessLevel.NONE)
@@ -51,7 +52,8 @@ public final class Permissions {
 
     /** A copy with {@code scope} set to {@code level}. */
     public Permissions with(Scope scope, AccessLevel level) {
-        Objects.requireNonNull(scope, "scope");
+        if (scope == null)
+            throw InvalidPermissionsException.scopeRequired();
         scope.requireAllowed(level);
         EnumMap<Scope, AccessLevel> copy = new EnumMap<>(Scope.class);
         copy.putAll(levels);

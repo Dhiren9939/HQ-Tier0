@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import static me.dhiren9939.backend.access.application.usecase.Fixtures.*;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class IssueApiKeyHandlerTest {
 
@@ -51,6 +52,17 @@ class IssueApiKeyHandlerTest {
         assertThat(event.occurredAt()).isEqualTo(NOW);
         assertThat(event.emittedAt()).isNull();
         assertThat(event.accessSecretHash()).isEqualTo("hash-of-secret_raw");
+    }
+
+    @Test
+    void aCommandThatSkippedTheDtoIsRefusedWithADomainError() {
+        assertThatThrownBy(() -> handler.handle(new IssueApiKeyCommand(USER_ID, NAME, null, NO_PERMISSIONS)))
+                .isInstanceOfSatisfying(me.dhiren9939.backend.access.domain.exceptions.InvalidApiKeyException.class,
+                        e -> assertThat(e.violation()).isEqualTo(
+                                me.dhiren9939.backend.access.domain.exceptions.ApiKeyViolation.EXPIRY_REQUIRED));
+        assertThatThrownBy(() -> handler.handle(new IssueApiKeyCommand(USER_ID, "a\nb", Lifetime.NEVER, NO_PERMISSIONS)))
+                .isInstanceOf(me.dhiren9939.backend.access.domain.exceptions.InvalidApiKeyException.class);
+        assertThat(apiKeys.publishedEvents).isEmpty();
     }
 
     @Test

@@ -1,0 +1,16 @@
+{
+  "eventId": "00000000-0000-7000-8000-0000000000c3",
+  "eventType": "apiKey.projection.delete",
+  "apiKeyName": "orders-v2",
+  "apiKeyId": "01968a3e-0000-7000-8000-000000000002",
+  "version": 3,
+  "occurredAt": "2026-01-17T08:00:00Z",
+  "userId": "00000000-0000-0000-0000-000000000001",
+  "accessId": "V1_0PxK-z_9AbCdEfGhIjKlMn",
+  "accessSecretHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "permissions": {
+    "INGESTION": "WRITE"
+  },
+  "createdAt": "2026-01-15T11:00:00Z",
+  "expiresAt": null
+}

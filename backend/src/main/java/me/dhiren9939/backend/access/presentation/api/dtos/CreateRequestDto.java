@@ -1,5 +1,6 @@
 package me.dhiren9939.backend.access.presentation.api.dtos;
 
+import me.dhiren9939.backend.access.domain.aggregates.apikey.ApiKey;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -18,7 +19,7 @@ import java.util.Map;
  * code the client receives.</p>
  */
 public record CreateRequestDto(@NotBlank(message = "{NAME_REQUIRED}")
-                               @Size(max = 256, message = "{NAME_TOO_LONG}")
+                               @Size(max = ApiKey.MAX_NAME_LENGTH, message = "{NAME_TOO_LONG}")
                                @Pattern(regexp = RequestPatterns.NO_CONTROL_CHARACTERS, message = "{NAME_INVALID_CHARACTERS}")
                                String name,
                                @NotNull(message = "{EXPIRY_REQUIRED}") Lifetime expiry,
