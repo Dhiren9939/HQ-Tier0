@@ -164,6 +164,7 @@ class ArchitectureTest {
         noClasses().that().resideInAPackage(ROOT + ".ingestion..")
                 .should().dependOnClassesThat().resideInAPackage(ROOT + ".access..")
                 .because("contexts only meet through the published contracts in common")
+                .allowEmptyShould(true) // ingestion is being rewritten; keep the rule armed for when it returns
                 .check(mainClasses);
     }
 
